@@ -171,12 +171,20 @@ const sealedFields = {
   hash: z.string(),
 };
 
-function variant<K extends EventKind>(
-  base: typeof draftFields | typeof sealedFields,
-  kind: K,
-) {
+// Two concrete helpers (rather than one with a union-typed `base`) so TS keeps
+// the exact field set per variant — a union-typed base would statically drop
+// the sealed-only fields from the inferred type.
+function draftVariant<K extends EventKind>(kind: K) {
   return z.object({
-    ...base,
+    ...draftFields,
+    kind: z.literal(kind),
+    payload: PAYLOAD_SCHEMAS[kind],
+  });
+}
+
+function sealedVariant<K extends EventKind>(kind: K) {
+  return z.object({
+    ...sealedFields,
     kind: z.literal(kind),
     payload: PAYLOAD_SCHEMAS[kind],
   });
@@ -187,35 +195,35 @@ function variant<K extends EventKind>(
  * handler before the store assigns a `seq` and computes the hash chain.
  */
 export const RetraceEventDraft = z.discriminatedUnion("kind", [
-  variant(draftFields, "session_start"),
-  variant(draftFields, "user_prompt"),
-  variant(draftFields, "assistant_text"),
-  variant(draftFields, "thinking"),
-  variant(draftFields, "tool_call"),
-  variant(draftFields, "tool_result"),
-  variant(draftFields, "file_change"),
-  variant(draftFields, "subagent_start"),
-  variant(draftFields, "subagent_stop"),
-  variant(draftFields, "session_end"),
-  variant(draftFields, "error"),
-  variant(draftFields, "meta"),
+  draftVariant("session_start"),
+  draftVariant("user_prompt"),
+  draftVariant("assistant_text"),
+  draftVariant("thinking"),
+  draftVariant("tool_call"),
+  draftVariant("tool_result"),
+  draftVariant("file_change"),
+  draftVariant("subagent_start"),
+  draftVariant("subagent_stop"),
+  draftVariant("session_end"),
+  draftVariant("error"),
+  draftVariant("meta"),
 ]);
 export type RetraceEventDraft = z.infer<typeof RetraceEventDraft>;
 
 /** A sealed event as persisted to `events.jsonl`, with seq and hash chain. */
 export const RetraceEvent = z.discriminatedUnion("kind", [
-  variant(sealedFields, "session_start"),
-  variant(sealedFields, "user_prompt"),
-  variant(sealedFields, "assistant_text"),
-  variant(sealedFields, "thinking"),
-  variant(sealedFields, "tool_call"),
-  variant(sealedFields, "tool_result"),
-  variant(sealedFields, "file_change"),
-  variant(sealedFields, "subagent_start"),
-  variant(sealedFields, "subagent_stop"),
-  variant(sealedFields, "session_end"),
-  variant(sealedFields, "error"),
-  variant(sealedFields, "meta"),
+  sealedVariant("session_start"),
+  sealedVariant("user_prompt"),
+  sealedVariant("assistant_text"),
+  sealedVariant("thinking"),
+  sealedVariant("tool_call"),
+  sealedVariant("tool_result"),
+  sealedVariant("file_change"),
+  sealedVariant("subagent_start"),
+  sealedVariant("subagent_stop"),
+  sealedVariant("session_end"),
+  sealedVariant("error"),
+  sealedVariant("meta"),
 ]);
 export type RetraceEvent = z.infer<typeof RetraceEvent>;
 
