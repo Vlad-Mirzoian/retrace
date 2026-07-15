@@ -164,24 +164,34 @@ export interface ParsedTranscript {
   events: RetraceEventDraft[];
 }
 
-function* iterateLines(text: string): Iterable<string> {
+/** Split raw transcript text into trimmed, non-empty JSONL lines. */
+export function splitTranscriptLines(text: string): string[] {
+  const out: string[] = [];
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
-    if (trimmed) yield trimmed;
+    if (trimmed) out.push(trimmed);
   }
+  return out;
 }
 
 /**
- * Parse a whole transcript's text into event drafts plus accumulated session
- * metadata. Tolerant by design: unparseable lines become `meta` events rather
- * than aborting the parse.
+ * Parse an arbitrary slice of a transcript's lines into event drafts plus
+ * accumulated session metadata. `fallbackTs` seeds the timestamp used for
+ * records that omit their own — pass the previously-seen timestamp when
+ * parsing a slice that continues an earlier import, so a fresh import doesn't
+ * fall back to the epoch for a mid-session slice. Tolerant by design:
+ * unparseable lines become `meta` events rather than aborting the parse.
  */
-export function parseTranscript(text: string, sessionId: string): ParsedTranscript {
+export function parseTranscriptLines(
+  lines: string[],
+  sessionId: string,
+  fallbackTs = new Date(0).toISOString(),
+): ParsedTranscript {
   const events: RetraceEventDraft[] = [];
   const session: Partial<SessionInfo> = { id: sessionId };
-  let lastTs = new Date(0).toISOString();
+  let lastTs = fallbackTs;
 
-  for (const line of iterateLines(text)) {
+  for (const line of lines) {
     let record: RawRecord | null;
     try {
       record = JSON.parse(line) as RawRecord;
@@ -201,4 +211,13 @@ export function parseTranscript(text: string, sessionId: string): ParsedTranscri
   }
 
   return { sessionId, session, events };
+}
+
+/**
+ * Parse a whole transcript's text into event drafts plus accumulated session
+ * metadata. Thin wrapper over {@link parseTranscriptLines} for one-shot
+ * (non-incremental) parsing.
+ */
+export function parseTranscript(text: string, sessionId: string): ParsedTranscript {
+  return parseTranscriptLines(splitTranscriptLines(text), sessionId);
 }
