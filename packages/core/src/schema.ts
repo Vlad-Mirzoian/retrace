@@ -7,6 +7,34 @@ import { z } from "zod";
 export const RETRACE_SCHEMA_VERSION = 1;
 
 /**
+ * Session metadata shapes. Kept here (not in store.ts) since they're pure data
+ * — no Node dependency — so browser code (the viewer) can import them via
+ * `@retrace/core/browser` without pulling in store.ts's node:sqlite/fs imports.
+ */
+export interface SessionInfo {
+  id: string;
+  project?: string | null;
+  cwd?: string | null;
+  gitBranch?: string | null;
+  ccVersion?: string | null;
+  permissionMode?: string | null;
+  title?: string | null;
+}
+
+export interface SessionRow {
+  id: string;
+  project: string | null;
+  cwd: string | null;
+  gitBranch: string | null;
+  ccVersion: string | null;
+  permissionMode: string | null;
+  title: string | null;
+  startedAt: string | null;
+  endedAt: string | null;
+  eventCount: number;
+}
+
+/**
  * The full set of normalized event kinds. Every Claude Code transcript record
  * (and every hook payload) is mapped onto one of these; anything unrecognized
  * becomes a `meta` event rather than being dropped or throwing.

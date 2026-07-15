@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "retrace-api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["packages/cli/dist/cli.js", "ui", "--port", "4317", "--no-open"],
+      "port": 4317
+    },
+    {
+      "name": "viewer-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@retrace/viewer", "dev"],
+      "port": 5173
+    }
+  ]
+}

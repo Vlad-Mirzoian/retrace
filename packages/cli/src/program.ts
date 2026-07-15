@@ -40,6 +40,7 @@ interface InitCommandOptions {
 
 interface UiCommandOptions {
   port?: string;
+  open?: boolean;
 }
 
 /**
@@ -142,10 +143,11 @@ export function createProgram(deps: ProgramDeps = {}): Command {
     .command("ui")
     .description("Serve the Retrace session viewer")
     .option("--port <port>", "port to listen on (default: an OS-assigned free port)")
+    .option("--no-open", "don't launch the system browser")
     .action(async (opts: UiCommandOptions) => {
       const store = createStore();
       const port = opts.port !== undefined ? Number(opts.port) : undefined;
-      const handle = await doStartUi(store, { port });
+      const handle = await doStartUi(store, { port, openBrowser: opts.open });
       const stop = async () => {
         await handle.stop();
         store.close();

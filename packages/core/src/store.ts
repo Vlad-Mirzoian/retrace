@@ -12,7 +12,13 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { ContentStore } from "./cas.js";
 import { sealEvent } from "./chain.js";
-import { RetraceEvent, type RetraceEventDraft } from "./schema.js";
+import {
+  RetraceEvent,
+  type RetraceEventDraft,
+  type SessionInfo,
+  type SessionRow,
+} from "./schema.js";
+import { summarize } from "./summarize.js";
 
 // `node:sqlite` is new enough that some bundlers' builtin-module detection
 // (e.g. vite-node, which vitest uses) doesn't yet recognize it and tries to
@@ -25,70 +31,11 @@ export function retraceHome(): string {
   return process.env.RETRACE_HOME ?? join(homedir(), ".retrace");
 }
 
-export interface SessionInfo {
-  id: string;
-  project?: string | null;
-  cwd?: string | null;
-  gitBranch?: string | null;
-  ccVersion?: string | null;
-  permissionMode?: string | null;
-  title?: string | null;
-}
-
-export interface SessionRow {
-  id: string;
-  project: string | null;
-  cwd: string | null;
-  gitBranch: string | null;
-  ccVersion: string | null;
-  permissionMode: string | null;
-  title: string | null;
-  startedAt: string | null;
-  endedAt: string | null;
-  eventCount: number;
-}
-
 export interface ImportState {
   sessionId: string;
   size: number;
   mtimeMs: number;
   lastLine: number;
-}
-
-const MAX_SUMMARY_LENGTH = 120;
-
-function truncate(text: string): string {
-  const oneLine = text.replace(/\s+/g, " ").trim();
-  return oneLine.length > MAX_SUMMARY_LENGTH
-    ? `${oneLine.slice(0, MAX_SUMMARY_LENGTH - 1)}…`
-    : oneLine;
-}
-
-/** A short human-readable label for an event, used in CLI/viewer lists. */
-export function summarize(draft: RetraceEventDraft): string {
-  switch (draft.kind) {
-    case "user_prompt":
-    case "assistant_text":
-    case "thinking":
-      return truncate(draft.payload.text);
-    case "tool_call":
-      return draft.payload.toolName;
-    case "tool_result":
-      return draft.payload.isError ? "error" : "result";
-    case "file_change":
-      return `${draft.payload.operation} ${draft.payload.path}`;
-    case "session_start":
-      return draft.payload.title ?? "";
-    case "subagent_start":
-    case "subagent_stop":
-      return draft.payload.description ?? "";
-    case "session_end":
-      return draft.payload.reason ?? "";
-    case "error":
-      return truncate(draft.payload.message);
-    case "meta":
-      return draft.payload.note ?? draft.payload.originalType ?? "";
-  }
 }
 
 /** node:sqlite rejects `undefined` bindings; normalize to `null`. */

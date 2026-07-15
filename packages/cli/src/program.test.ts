@@ -176,4 +176,28 @@ describe("createProgram — ui", () => {
 
     process.emit("SIGINT");
   });
+
+  it("opens the browser by default", async () => {
+    const handle: UiHandle = { url: "http://localhost:9", port: 9, stop: vi.fn() };
+    const startUi = vi.fn().mockResolvedValue(handle);
+
+    const program = createProgram({ createStore: () => store, startUi });
+    await program.parseAsync(["node", "retrace", "ui"]);
+
+    const [, options] = startUi.mock.calls[0];
+    expect(options.openBrowser).toBe(true);
+    process.emit("SIGINT");
+  });
+
+  it("passes openBrowser: false when --no-open is given", async () => {
+    const handle: UiHandle = { url: "http://localhost:9", port: 9, stop: vi.fn() };
+    const startUi = vi.fn().mockResolvedValue(handle);
+
+    const program = createProgram({ createStore: () => store, startUi });
+    await program.parseAsync(["node", "retrace", "ui", "--no-open"]);
+
+    const [, options] = startUi.mock.calls[0];
+    expect(options.openBrowser).toBe(false);
+    process.emit("SIGINT");
+  });
 });

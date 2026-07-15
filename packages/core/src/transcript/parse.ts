@@ -1,5 +1,4 @@
-import type { RetraceEventDraft } from "../schema.js";
-import type { SessionInfo } from "../store.js";
+import type { RetraceEventDraft, SessionInfo } from "../schema.js";
 import { KNOWN_SERVICE_TYPES, type RawBlock, type RawRecord } from "./records.js";
 
 /** Common envelope fields shared by every draft produced from one record. */
