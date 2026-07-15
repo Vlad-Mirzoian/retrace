@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.retrace/
+*.log
+.DS_Store
+coverage/
