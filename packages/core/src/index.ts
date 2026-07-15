@@ -4,3 +4,4 @@ export * from "./schema.js";
 export * from "./chain.js";
 export * from "./cas.js";
 export * from "./store.js";
+export * from "./transcript/index.js";

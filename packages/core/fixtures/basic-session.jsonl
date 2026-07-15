@@ -1,0 +1,13 @@
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-07-15T14:37:00.000Z","sessionId":"sess-basic","content":"List the files and read the config"}
+{"parentUuid":null,"isSidechain":false,"promptId":"prompt-1","type":"user","message":{"role":"user","content":"List the files and read the config"},"uuid":"u1","timestamp":"2026-07-15T14:37:00.500Z","cwd":"/home/dev/demo","sessionId":"sess-basic","version":"2.1.181","gitBranch":"main","permissionMode":"default"}
+{"type":"ai-title","aiTitle":"Draft title being formed","sessionId":"sess-basic"}
+{"parentUuid":"u1","isSidechain":false,"type":"assistant","message":{"model":"claude-sonnet-4-6","role":"assistant","content":[{"type":"thinking","thinking":"I should list the directory first, then read the config file.","signature":"sig-abc"},{"type":"text","text":"I'll list the files and read the config."},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls -la"}}]},"uuid":"a1","timestamp":"2026-07-15T14:37:01.000Z","cwd":"/home/dev/demo","sessionId":"sess-basic","version":"2.1.181","gitBranch":"main"}
+{"parentUuid":"a1","isSidechain":false,"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_1","type":"tool_result","content":"total 8\ndrwxr-xr-x config.json\n-rw-r--r-- index.js"}]},"uuid":"u2","timestamp":"2026-07-15T14:37:01.500Z","sessionId":"sess-basic"}
+{"type":"mode","mode":"acceptEdits","timestamp":"2026-07-15T14:37:01.600Z","sessionId":"sess-basic"}
+{"parentUuid":"u2","isSidechain":false,"type":"assistant","message":{"model":"claude-sonnet-4-6","role":"assistant","content":[{"type":"tool_use","id":"toolu_2","name":"Read","input":{"file_path":"/home/dev/demo/config.json"}}]},"uuid":"a2","timestamp":"2026-07-15T14:37:02.000Z","sessionId":"sess-basic","version":"2.1.181","gitBranch":"main"}
+{"parentUuid":"a2","isSidechain":false,"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_2","type":"tool_result","content":"could not read file: ENOENT","is_error":true}]},"uuid":"u3","timestamp":"2026-07-15T14:37:02.500Z","sessionId":"sess-basic"}
+{"parentUuid":"u3","isSidechain":false,"type":"assistant","message":{"model":"claude-sonnet-4-6","role":"assistant","content":[{"type":"text","text":"The config file does not exist yet."}]},"uuid":"a3","timestamp":"2026-07-15T14:37:03.000Z","sessionId":"sess-basic","version":"2.1.181","gitBranch":"main"}
+{"type":"ai-title","aiTitle":"List files and read missing config","sessionId":"sess-basic"}
+{"type":"future-record-type-we-do-not-know","payload":{"whatever":1},"timestamp":"2026-07-15T14:37:03.500Z","sessionId":"sess-basic"}
+this line is not valid json at all
+{"type":"last-prompt","timestamp":"2026-07-15T14:37:04.000Z","sessionId":"sess-basic"}
