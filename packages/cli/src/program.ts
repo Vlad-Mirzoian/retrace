@@ -17,6 +17,7 @@ import {
   type InitResult,
 } from "./commands/init.js";
 import { runHook as realRunHook } from "./commands/hook.js";
+import { startUi as realStartUi, type UiHandle, type UiOptions } from "./commands/ui.js";
 import { CLI_VERSION } from "./version.js";
 
 export interface ProgramDeps {
@@ -25,6 +26,7 @@ export interface ProgramDeps {
   watchImport?: (store: RetraceStore, options?: WatchImportOptions) => WatchHandle;
   initHooks?: (options: InitOptions) => InitResult;
   runHook?: (createStore: () => RetraceStore) => Promise<void>;
+  startUi?: (store: RetraceStore, options?: UiOptions) => Promise<UiHandle>;
 }
 
 interface ImportCommandOptions {
@@ -34,6 +36,10 @@ interface ImportCommandOptions {
 
 interface InitCommandOptions {
   global?: boolean;
+}
+
+interface UiCommandOptions {
+  port?: string;
 }
 
 /**
@@ -47,6 +53,7 @@ export function createProgram(deps: ProgramDeps = {}): Command {
   const doWatchImport = deps.watchImport ?? realWatchImport;
   const doInitHooks = deps.initHooks ?? realInitHooks;
   const doRunHook = deps.runHook ?? realRunHook;
+  const doStartUi = deps.startUi ?? realStartUi;
 
   const program = new Command();
   program
@@ -129,6 +136,24 @@ export function createProgram(deps: ProgramDeps = {}): Command {
     .description("Handle a Claude Code hook event from stdin (invoked by installed hooks)")
     .action(async () => {
       await doRunHook(createStore);
+    });
+
+  program
+    .command("ui")
+    .description("Serve the Retrace session viewer")
+    .option("--port <port>", "port to listen on (default: an OS-assigned free port)")
+    .action(async (opts: UiCommandOptions) => {
+      const store = createStore();
+      const port = opts.port !== undefined ? Number(opts.port) : undefined;
+      const handle = await doStartUi(store, { port });
+      const stop = async () => {
+        await handle.stop();
+        store.close();
+      };
+      process.once("SIGINT", stop);
+      process.once("SIGTERM", stop);
+      // As with `import --watch`, the server's own listening socket keeps the
+      // process alive until `stop` runs — nothing to await here.
     });
 
   return program;

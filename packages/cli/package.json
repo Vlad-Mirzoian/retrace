@@ -16,7 +16,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@hono/node-server": "^2.0.8",
     "@retrace/core": "workspace:*",
-    "commander": "^15.0.0"
+    "commander": "^15.0.0",
+    "hono": "^4.12.30",
+    "open": "^11.0.0"
   }
 }

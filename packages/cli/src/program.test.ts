@@ -5,6 +5,7 @@ import { RetraceStore } from "@retrace/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImportSummary, WatchHandle } from "./commands/import.js";
 import type { InitResult } from "./commands/init.js";
+import type { UiHandle } from "./commands/ui.js";
 import { createProgram } from "./program.js";
 
 let home: string;
@@ -139,5 +140,40 @@ describe("createProgram — hook", () => {
     const program = createProgram({ createStore: () => store, runHook });
     await program.parseAsync(["node", "retrace", "hook"]);
     expect(runHook).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("createProgram — ui", () => {
+  it("starts the UI server and registers a SIGINT handler to stop it", async () => {
+    const stop = vi.fn().mockResolvedValue(undefined);
+    const handle: UiHandle = { url: "http://localhost:1234", port: 1234, stop };
+    const startUi = vi.fn().mockResolvedValue(handle);
+
+    const program = createProgram({ createStore: () => store, startUi });
+    await program.parseAsync(["node", "retrace", "ui"]);
+
+    expect(startUi).toHaveBeenCalledTimes(1);
+    const [passedStore, options] = startUi.mock.calls[0];
+    expect(passedStore).toBe(store);
+    expect(options.port).toBeUndefined();
+
+    process.emit("SIGINT");
+    // stop() is async; flush microtasks before asserting.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("parses --port and passes it through as a number", async () => {
+    const handle: UiHandle = { url: "http://localhost:9", port: 9, stop: vi.fn() };
+    const startUi = vi.fn().mockResolvedValue(handle);
+
+    const program = createProgram({ createStore: () => store, startUi });
+    await program.parseAsync(["node", "retrace", "ui", "--port", "4321"]);
+
+    const [, options] = startUi.mock.calls[0];
+    expect(options.port).toBe(4321);
+
+    process.emit("SIGINT");
   });
 });
