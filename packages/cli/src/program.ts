@@ -10,17 +10,30 @@ import {
   type WatchImportOptions,
 } from "./commands/import.js";
 import { formatSessionsTable } from "./commands/list.js";
+import {
+  initHooks as realInitHooks,
+  resolveSettingsPath,
+  type InitOptions,
+  type InitResult,
+} from "./commands/init.js";
+import { runHook as realRunHook } from "./commands/hook.js";
 import { CLI_VERSION } from "./version.js";
 
 export interface ProgramDeps {
   createStore?: () => RetraceStore;
   importOnce?: (store: RetraceStore, options?: ImportOptions) => ImportSummary;
   watchImport?: (store: RetraceStore, options?: WatchImportOptions) => WatchHandle;
+  initHooks?: (options: InitOptions) => InitResult;
+  runHook?: (createStore: () => RetraceStore) => Promise<void>;
 }
 
 interface ImportCommandOptions {
   watch?: boolean;
   projectsDir?: string;
+}
+
+interface InitCommandOptions {
+  global?: boolean;
 }
 
 /**
@@ -32,6 +45,8 @@ export function createProgram(deps: ProgramDeps = {}): Command {
   const createStore = deps.createStore ?? (() => new RetraceStore());
   const doImportOnce = deps.importOnce ?? realImportOnce;
   const doWatchImport = deps.watchImport ?? realWatchImport;
+  const doInitHooks = deps.initHooks ?? realInitHooks;
+  const doRunHook = deps.runHook ?? realRunHook;
 
   const program = new Command();
   program
@@ -88,6 +103,32 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       } finally {
         store.close();
       }
+    });
+
+  program
+    .command("init")
+    .description("Install Retrace hooks into Claude Code settings")
+    .option(
+      "--global",
+      "write to user settings (~/.claude/settings.json) instead of the project",
+    )
+    .action((opts: InitCommandOptions) => {
+      const settingsPath = resolveSettingsPath({ global: opts.global });
+      const result = doInitHooks({ settingsPath });
+      if (!result.changed) {
+        console.log(`Retrace hooks already present in ${result.settingsPath}`);
+        return;
+      }
+      console.log(`${result.created ? "Created" : "Updated"} ${result.settingsPath}`);
+      if (result.backupPath) console.log(`Backed up previous settings to ${result.backupPath}`);
+      console.log("Retrace will now capture file snapshots and session boundaries.");
+    });
+
+  program
+    .command("hook")
+    .description("Handle a Claude Code hook event from stdin (invoked by installed hooks)")
+    .action(async () => {
+      await doRunHook(createStore);
     });
 
   return program;

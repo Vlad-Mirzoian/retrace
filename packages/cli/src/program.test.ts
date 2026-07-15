@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { RetraceStore } from "@retrace/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImportSummary, WatchHandle } from "./commands/import.js";
+import type { InitResult } from "./commands/init.js";
 import { createProgram } from "./program.js";
 
 let home: string;
@@ -98,5 +99,45 @@ describe("createProgram — import", () => {
 
     const [, options] = importOnce.mock.calls[0];
     expect(options.projectsDir).toBeUndefined();
+  });
+});
+
+describe("createProgram — init", () => {
+  it("installs hooks and reports the result", async () => {
+    const result: InitResult = {
+      settingsPath: "/repo/.claude/settings.json",
+      changed: true,
+      created: true,
+    };
+    const initHooks = vi.fn().mockReturnValue(result);
+
+    const program = createProgram({ createStore: () => store, initHooks });
+    await program.parseAsync(["node", "retrace", "init"]);
+
+    expect(initHooks).toHaveBeenCalledTimes(1);
+    const [options] = initHooks.mock.calls[0];
+    expect(options.settingsPath).toMatch(/\.claude[\\/]settings\.json$/);
+    expect(output()).toMatch(/created/i);
+  });
+
+  it("reports when hooks are already present", async () => {
+    const initHooks = vi.fn().mockReturnValue({
+      settingsPath: "/repo/.claude/settings.json",
+      changed: false,
+      created: false,
+    });
+
+    const program = createProgram({ createStore: () => store, initHooks });
+    await program.parseAsync(["node", "retrace", "init"]);
+    expect(output()).toMatch(/already present/i);
+  });
+});
+
+describe("createProgram — hook", () => {
+  it("delegates to the injected hook runner", async () => {
+    const runHook = vi.fn().mockResolvedValue(undefined);
+    const program = createProgram({ createStore: () => store, runHook });
+    await program.parseAsync(["node", "retrace", "hook"]);
+    expect(runHook).toHaveBeenCalledTimes(1);
   });
 });

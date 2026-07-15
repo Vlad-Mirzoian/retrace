@@ -9,4 +9,6 @@ export function describeCli(): string {
 
 export * from "./commands/import.js";
 export * from "./commands/list.js";
+export * from "./commands/hook.js";
+export * from "./commands/init.js";
 export * from "./program.js";
