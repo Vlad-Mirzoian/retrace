@@ -231,8 +231,10 @@ export class RetraceStore {
     return this.cas;
   }
 
+  /** Idempotent: safe to call more than once (e.g. a shared store closed by
+   * both a command handler and a test's cleanup). */
   close(): void {
-    this.db.close();
+    if (this.db.isOpen) this.db.close();
   }
 
   private eventsPath(sessionId: string): string {

@@ -6,14 +6,17 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "retrace": "dist/index.js"
+    "retrace": "dist/cli.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "test": "vitest run"
   },
   "dependencies": {
-    "@retrace/core": "workspace:*"
+    "@retrace/core": "workspace:*",
+    "commander": "^15.0.0"
   }
 }

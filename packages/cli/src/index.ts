@@ -1,9 +1,12 @@
 import { CORE_VERSION } from "@retrace/core";
+import { CLI_VERSION } from "./version.js";
 
-export const CLI_VERSION = "0.0.1";
+export { CLI_VERSION };
 
 export function describeCli(): string {
   return `retrace CLI ${CLI_VERSION} (core ${CORE_VERSION})`;
 }
 
 export * from "./commands/import.js";
+export * from "./commands/list.js";
+export * from "./program.js";
