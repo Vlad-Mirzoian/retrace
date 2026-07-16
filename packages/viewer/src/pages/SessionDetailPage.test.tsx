@@ -37,7 +37,16 @@ const events: RetraceEvent[] = [
     prevHash: "h0",
     hash: "h1",
     kind: "tool_call",
-    payload: { toolName: "Read", toolUseId: "t1", input: {} },
+    payload: { toolName: "Read", toolUseId: "t1", input: { file_path: "/a.ts" } },
+  },
+  {
+    seq: 2,
+    ts: "2026-07-15T14:37:02.000Z",
+    sessionId: "sess-1",
+    prevHash: "h1",
+    hash: "h2",
+    kind: "tool_result",
+    payload: { toolUseId: "t1", output: "the file body" },
   },
 ];
 
@@ -52,32 +61,34 @@ function renderAtSession(id: string) {
 }
 
 describe("SessionDetailPage", () => {
-  it("renders the session header and its events", async () => {
+  it("renders the session header and its timeline", async () => {
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getEvents).mockResolvedValue(events);
+    vi.mocked(client.getAllEvents).mockResolvedValue(events);
 
     renderAtSession("sess-1");
 
     expect(await screen.findByRole("heading", { name: "Fix the login bug" })).toBeInTheDocument();
     expect(screen.getByText(/demo/)).toBeInTheDocument();
     expect(await screen.findByText("please fix the login bug")).toBeInTheDocument();
+    // The tool call and its result are folded into a single row.
     expect(screen.getByText("Read")).toBeInTheDocument();
+    expect(screen.getByText("the file body")).toBeInTheDocument();
   });
 
-  it("requests events for the id taken from the route", async () => {
+  it("loads the whole session, not just the first page", async () => {
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getEvents).mockResolvedValue([]);
+    vi.mocked(client.getAllEvents).mockResolvedValue([]);
 
     renderAtSession("sess-1");
 
     await screen.findByRole("heading", { name: "Fix the login bug" });
     expect(client.getSession).toHaveBeenCalledWith("sess-1");
-    expect(client.getEvents).toHaveBeenCalledWith("sess-1", { limit: 100 });
+    expect(client.getAllEvents).toHaveBeenCalledWith("sess-1");
   });
 
   it("shows a friendly message when there are no events", async () => {
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getEvents).mockResolvedValue([]);
+    vi.mocked(client.getAllEvents).mockResolvedValue([]);
 
     renderAtSession("sess-1");
     expect(await screen.findByText(/no events recorded/i)).toBeInTheDocument();
@@ -85,9 +96,17 @@ describe("SessionDetailPage", () => {
 
   it("shows an error when the session fails to load", async () => {
     vi.mocked(client.getSession).mockRejectedValue(new Error("boom"));
-    vi.mocked(client.getEvents).mockResolvedValue([]);
+    vi.mocked(client.getAllEvents).mockResolvedValue([]);
 
     renderAtSession("sess-1");
     expect(await screen.findByText(/failed to load session: boom/i)).toBeInTheDocument();
+  });
+
+  it("shows an error when the events fail to load", async () => {
+    vi.mocked(client.getSession).mockResolvedValue(session);
+    vi.mocked(client.getAllEvents).mockRejectedValue(new Error("events exploded"));
+
+    renderAtSession("sess-1");
+    expect(await screen.findByText(/failed to load events: events exploded/i)).toBeInTheDocument();
   });
 });

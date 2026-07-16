@@ -1,14 +1,19 @@
-import { summarize } from "@retrace/core/browser";
+import { useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
-import { getEvents, getSession } from "../api/client.js";
+import { getAllEvents, getSession } from "../api/client.js";
 import { useAsync } from "../hooks/useAsync.js";
-
-const PAGE_SIZE = 100;
+import { groupEvents } from "../timeline/grouping.js";
+import { Timeline } from "../timeline/Timeline.js";
 
 export function SessionDetailPage() {
   const { id = "" } = useParams();
   const session = useAsync(() => getSession(id), [id]);
-  const events = useAsync(() => getEvents(id, { limit: PAGE_SIZE }), [id]);
+  const events = useAsync(() => getAllEvents(id), [id]);
+
+  const items = useMemo(
+    () => (events.status === "ready" ? groupEvents(events.data) : []),
+    [events],
+  );
 
   return (
     <div className="page">
@@ -34,19 +39,7 @@ export function SessionDetailPage() {
       {events.status === "error" && (
         <p className="error">Failed to load events: {events.error.message}</p>
       )}
-      {events.status === "ready" &&
-        (events.data.length === 0 ? (
-          <p className="muted">No events recorded for this session.</p>
-        ) : (
-          <ul className="event-list">
-            {events.data.map((event) => (
-              <li key={event.seq} className="event-row">
-                <span className="event-kind">{event.kind}</span>
-                <span className="event-summary">{summarize(event)}</span>
-              </li>
-            ))}
-          </ul>
-        ))}
+      {events.status === "ready" && <Timeline items={items} />}
     </div>
   );
 }
