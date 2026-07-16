@@ -1,5 +1,6 @@
 import type { RetraceEvent, SessionRow } from "@retrace/core/browser";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import * as client from "../api/client.js";
@@ -108,5 +109,33 @@ describe("SessionDetailPage", () => {
 
     renderAtSession("sess-1");
     expect(await screen.findByText(/failed to load events: events exploded/i)).toBeInTheDocument();
+  });
+
+  it("filters the timeline by text search", async () => {
+    vi.mocked(client.getSession).mockResolvedValue(session);
+    vi.mocked(client.getAllEvents).mockResolvedValue(events);
+
+    renderAtSession("sess-1");
+    await screen.findByText("please fix the login bug");
+    expect(screen.getByText("Read")).toBeInTheDocument();
+
+    await userEvent.type(screen.getByRole("searchbox"), "login");
+
+    expect(screen.getByText("please fix the login bug")).toBeInTheDocument();
+    expect(screen.queryByText("Read")).not.toBeInTheDocument();
+    expect(screen.getByText("1 / 3 events")).toBeInTheDocument();
+  });
+
+  it("filters the timeline by kind chip", async () => {
+    vi.mocked(client.getSession).mockResolvedValue(session);
+    vi.mocked(client.getAllEvents).mockResolvedValue(events);
+
+    renderAtSession("sess-1");
+    await screen.findByText("please fix the login bug");
+
+    await userEvent.click(screen.getByRole("button", { name: "Tools" }));
+
+    expect(screen.queryByText("Read")).not.toBeInTheDocument();
+    expect(screen.getByText("please fix the login bug")).toBeInTheDocument();
   });
 });

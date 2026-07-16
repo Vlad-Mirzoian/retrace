@@ -49,12 +49,17 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
 
   return (
     <Virtuoso
+      // Filtering can shrink `items` between renders. Virtuoso's internal
+      // range tracking doesn't reliably re-clamp to a shorter list on its own
+      // (most visible without a real ResizeObserver, e.g. under jsdom in
+      // tests) and ends up indexing past the new end. Keying on the count
+      // forces a clean remount whenever the visible set changes size, so
+      // there's never stale range state to index out of bounds against.
+      key={items.length}
       useWindowScroll
       data={items}
       computeItemKey={(_, item) => itemKey(item)}
       itemContent={(_, item) => <TimelineRow item={item} />}
-      // Render a first screenful without measuring, so the timeline paints
-      // immediately (and renders in non-layout environments such as tests).
       initialItemCount={Math.min(items.length, 15)}
     />
   );

@@ -1,3 +1,7 @@
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { serveStatic } from "@hono/node-server/serve-static";
 import type { RetraceStore } from "@retrace/core";
 import { Hono } from "hono";
 
@@ -7,13 +11,23 @@ function parsePositiveInt(value: string | undefined, fallback: number): number |
   return Number(value);
 }
 
+export interface CreateAppOptions {
+  /**
+   * Absolute path to the built viewer SPA (index.html + assets), embedded
+   * into the CLI package's own dist at build time (see
+   * scripts/copy-viewer-dist.mjs). Omitted in tests and in dev, where the
+   * viewer is served separately by its own Vite dev server.
+   */
+  viewerDir?: string;
+}
+
 /**
  * Build the Retrace HTTP API over a store. Framework-agnostic in the sense
- * that it never touches the network itself — `retrace ui` (server/serve.ts)
- * is what binds this to a port; tests can exercise it directly via
+ * that it never touches the network itself — `retrace ui` (commands/ui.ts) is
+ * what binds this to a port; tests can exercise it directly via
  * `app.request(...)` with no listening socket at all.
  */
-export function createApp(store: RetraceStore): Hono {
+export function createApp(store: RetraceStore, options: CreateAppOptions = {}): Hono {
   const app = new Hono();
 
   app.get("/api/sessions", (c) => c.json(store.listSessions()));
@@ -48,6 +62,24 @@ export function createApp(store: RetraceStore): Hono {
       return c.json({ error: "object not found" }, 404);
     }
   });
+
+  if (options.viewerDir && existsSync(options.viewerDir)) {
+    const viewerDir = options.viewerDir;
+    app.get(
+      "*",
+      // /api/* paths are handled by the routes above; anything that reaches
+      // here unmatched is a bad API path, not a client-side route — 404 it
+      // rather than falling through to the SPA shell below.
+      async (c, next) => {
+        if (c.req.path.startsWith("/api/")) return c.notFound();
+        return next();
+      },
+      serveStatic({ root: viewerDir }),
+      // Anything left over is a client-side route (e.g. /sessions/:id loaded
+      // directly): serve the SPA shell and let React Router take over.
+      async (c) => c.html(await readFile(join(viewerDir, "index.html"), "utf8")),
+    );
+  }
 
   return app;
 }

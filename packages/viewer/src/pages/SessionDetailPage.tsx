@@ -1,7 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getAllEvents, getSession } from "../api/client.js";
 import { useAsync } from "../hooks/useAsync.js";
+import { ALL_FILTER_KINDS, countEvents, filterItems, type FilterKind } from "../timeline/filter.js";
+import { FilterBar } from "../timeline/FilterBar.js";
 import { groupEvents } from "../timeline/grouping.js";
 import { Timeline } from "../timeline/Timeline.js";
 
@@ -10,9 +12,27 @@ export function SessionDetailPage() {
   const session = useAsync(() => getSession(id), [id]);
   const events = useAsync(() => getAllEvents(id), [id]);
 
-  const items = useMemo(
+  const [activeKinds, setActiveKinds] = useState<Set<FilterKind>>(
+    () => new Set(ALL_FILTER_KINDS),
+  );
+  const [search, setSearch] = useState("");
+
+  function toggleKind(kind: FilterKind) {
+    setActiveKinds((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+  }
+
+  const groupedItems = useMemo(
     () => (events.status === "ready" ? groupEvents(events.data) : []),
     [events],
+  );
+  const filteredItems = useMemo(
+    () => filterItems(groupedItems, activeKinds, search),
+    [groupedItems, activeKinds, search],
   );
 
   return (
@@ -39,7 +59,19 @@ export function SessionDetailPage() {
       {events.status === "error" && (
         <p className="error">Failed to load events: {events.error.message}</p>
       )}
-      {events.status === "ready" && <Timeline items={items} />}
+      {events.status === "ready" && (
+        <>
+          <FilterBar
+            activeKinds={activeKinds}
+            onToggle={toggleKind}
+            search={search}
+            onSearchChange={setSearch}
+            shown={countEvents(filteredItems)}
+            total={events.data.length}
+          />
+          <Timeline items={filteredItems} />
+        </>
+      )}
     </div>
   );
 }

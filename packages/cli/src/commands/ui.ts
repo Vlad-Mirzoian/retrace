@@ -11,6 +11,8 @@ export interface UiOptions {
   /** Injectable for tests, so no real browser window is launched. */
   launch?: (url: string) => void;
   log?: (message: string) => void;
+  /** Absolute path to the embedded viewer build; see server/app.ts. */
+  viewerDir?: string;
 }
 
 export interface UiHandle {
@@ -21,7 +23,7 @@ export interface UiHandle {
 
 /** Start the Retrace viewer's HTTP server, resolving once it is listening. */
 export function startUi(store: RetraceStore, options: UiOptions = {}): Promise<UiHandle> {
-  const app = createApp(store);
+  const app = createApp(store, { viewerDir: options.viewerDir });
   const log = options.log ?? ((message: string) => console.log(message));
   const launch = options.launch ?? ((url: string) => void open(url));
 

@@ -27,6 +27,8 @@ export interface ProgramDeps {
   initHooks?: (options: InitOptions) => InitResult;
   runHook?: (createStore: () => RetraceStore) => Promise<void>;
   startUi?: (store: RetraceStore, options?: UiOptions) => Promise<UiHandle>;
+  /** Absolute path to the embedded viewer build; passed by cli.ts (see server/app.ts). */
+  viewerDir?: string;
 }
 
 interface ImportCommandOptions {
@@ -147,7 +149,11 @@ export function createProgram(deps: ProgramDeps = {}): Command {
     .action(async (opts: UiCommandOptions) => {
       const store = createStore();
       const port = opts.port !== undefined ? Number(opts.port) : undefined;
-      const handle = await doStartUi(store, { port, openBrowser: opts.open });
+      const handle = await doStartUi(store, {
+        port,
+        openBrowser: opts.open,
+        viewerDir: deps.viewerDir,
+      });
       const stop = async () => {
         await handle.stop();
         store.close();

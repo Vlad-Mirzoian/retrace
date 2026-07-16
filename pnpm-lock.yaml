@@ -38,6 +38,10 @@ importers:
       open:
         specifier: ^11.0.0
         version: 11.0.0
+    devDependencies:
+      '@retrace/viewer':
+        specifier: workspace:*
+        version: link:../viewer
 
   packages/core:
     dependencies:
