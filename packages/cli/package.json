@@ -1,8 +1,19 @@
 {
-  "name": "@retrace/cli",
-  "version": "0.0.1",
-  "private": true,
+  "name": "retrace-cli",
+  "version": "0.1.0",
+  "description": "Retrace — a flight recorder for AI coding agents. Records Claude Code sessions and serves a searchable timeline viewer.",
   "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "retrace",
+    "claude-code",
+    "ai-agent",
+    "observability",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
@@ -17,7 +28,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.8",
-    "@retrace/core": "workspace:*",
+    "retrace-core": "workspace:*",
     "commander": "^15.0.0",
     "hono": "^4.12.30",
     "open": "^11.0.0"

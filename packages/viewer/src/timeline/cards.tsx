@@ -1,5 +1,5 @@
-import type { RetraceEvent } from "@retrace/core/browser";
-import { summarize } from "@retrace/core/browser";
+import type { RetraceEvent } from "retrace-core/browser";
+import { summarize } from "retrace-core/browser";
 import type { ReactNode } from "react";
 import { Collapsible, JsonBlock } from "./primitives.js";
 

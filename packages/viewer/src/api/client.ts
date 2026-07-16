@@ -1,4 +1,4 @@
-import type { RetraceEvent, SessionRow } from "@retrace/core/browser";
+import type { RetraceEvent, SessionRow } from "retrace-core/browser";
 
 export class ApiError extends Error {
   constructor(

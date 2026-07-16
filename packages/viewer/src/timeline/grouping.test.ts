@@ -1,4 +1,4 @@
-import type { RetraceEvent } from "@retrace/core/browser";
+import type { RetraceEvent } from "retrace-core/browser";
 import { describe, expect, it } from "vitest";
 import { groupEvents, itemKey } from "./grouping.js";
 

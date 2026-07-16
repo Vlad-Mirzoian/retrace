@@ -9,7 +9,7 @@ export const RETRACE_SCHEMA_VERSION = 1;
 /**
  * Session metadata shapes. Kept here (not in store.ts) since they're pure data
  * — no Node dependency — so browser code (the viewer) can import them via
- * `@retrace/core/browser` without pulling in store.ts's node:sqlite/fs imports.
+ * `retrace-core/browser` without pulling in store.ts's node:sqlite/fs imports.
  */
 export interface SessionInfo {
   id: string;

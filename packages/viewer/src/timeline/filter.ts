@@ -1,4 +1,4 @@
-import { summarize } from "@retrace/core/browser";
+import { summarize } from "retrace-core/browser";
 import type { LeafItem, TimelineItem } from "./grouping.js";
 import { outputToText } from "./ToolCallCard.js";
 

@@ -1,4 +1,4 @@
-import type { RetraceEvent, SessionRow } from "@retrace/core/browser";
+import type { RetraceEvent, SessionRow } from "retrace-core/browser";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { SessionHeader } from "./pages/SessionHeader.js";

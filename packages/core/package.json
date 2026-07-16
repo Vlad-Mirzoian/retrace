@@ -1,8 +1,18 @@
 {
-  "name": "@retrace/core",
-  "version": "0.0.1",
-  "private": true,
+  "name": "retrace-core",
+  "version": "0.1.0",
+  "description": "Core event schema, hash-chained store, and transcript parser for Retrace, a flight recorder for AI coding agents.",
   "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "retrace",
+    "claude-code",
+    "ai-agent",
+    "observability"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

@@ -1,4 +1,4 @@
-import type { SessionRow } from "@retrace/core";
+import type { SessionRow } from "retrace-core";
 import { describe, expect, it } from "vitest";
 import { formatSessionsTable } from "./list.js";
 

@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RetraceStore } from "@retrace/core";
+import { RetraceStore } from "retrace-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImportSummary, WatchHandle } from "./commands/import.js";
 import type { InitResult } from "./commands/init.js";

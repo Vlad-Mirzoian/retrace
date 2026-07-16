@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { RetraceStore } from "@retrace/core";
+import { RetraceStore } from "retrace-core";
 import {
   defaultProjectsDir,
   importOnce as realImportOnce,

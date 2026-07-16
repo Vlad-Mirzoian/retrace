@@ -1,4 +1,4 @@
-import type { SessionRow } from "@retrace/core/browser";
+import type { SessionRow } from "retrace-core/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, getEvents, getSession, listSessions } from "./client.js";
 

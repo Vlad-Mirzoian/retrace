@@ -1,4 +1,4 @@
-import type { SessionRow } from "@retrace/core/browser";
+import type { SessionRow } from "retrace-core/browser";
 
 export function SessionHeader({ session }: { session: SessionRow }) {
   return (

@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile, appendFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RetraceStore } from "@retrace/core";
+import { RetraceStore } from "retrace-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findTranscripts, importFile, importOnce, watchImport } from "./import.js";
 

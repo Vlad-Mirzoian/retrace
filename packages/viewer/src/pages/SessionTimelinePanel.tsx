@@ -1,4 +1,4 @@
-import type { RetraceEvent } from "@retrace/core/browser";
+import type { RetraceEvent } from "retrace-core/browser";
 import { useMemo, useState } from "react";
 import { ALL_FILTER_KINDS, countEvents, filterItems, type FilterKind } from "../timeline/filter.js";
 import { FilterBar } from "../timeline/FilterBar.js";

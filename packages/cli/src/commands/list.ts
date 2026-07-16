@@ -1,4 +1,4 @@
-import type { SessionRow } from "@retrace/core";
+import type { SessionRow } from "retrace-core";
 
 const MAX_TITLE_LENGTH = 60;
 

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { RetraceStore, type RetraceEventDraft } from "@retrace/core";
+import { RetraceStore, type RetraceEventDraft } from "retrace-core";
 
 /**
  * The JSON payload Claude Code writes to a hook command's stdin. Field names

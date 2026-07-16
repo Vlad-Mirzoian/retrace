@@ -1,4 +1,4 @@
-import type { RetraceEvent } from "@retrace/core/browser";
+import type { RetraceEvent } from "retrace-core/browser";
 
 export type ToolCallEvent = Extract<RetraceEvent, { kind: "tool_call" }>;
 export type ToolResultEvent = Extract<RetraceEvent, { kind: "tool_result" }>;

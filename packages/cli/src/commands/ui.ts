@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import type { RetraceStore } from "@retrace/core";
+import type { RetraceStore } from "retrace-core";
 import open from "open";
 import { createApp } from "../server/app.js";
 

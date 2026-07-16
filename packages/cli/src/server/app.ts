@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { RetraceStore } from "@retrace/core";
+import type { RetraceStore } from "retrace-core";
 import { Hono } from "hono";
 
 function parsePositiveInt(value: string | undefined, fallback: number): number | null {

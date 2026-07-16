@@ -14,7 +14,7 @@ import {
   parseTranscriptLines,
   splitTranscriptLines,
   RetraceStore,
-} from "@retrace/core";
+} from "retrace-core";
 
 export type ImportLogger = (message: string) => void;
 

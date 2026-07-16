@@ -1,4 +1,4 @@
-import type { RetraceEvent } from "@retrace/core/browser";
+import type { RetraceEvent } from "retrace-core/browser";
 import { getObjectText } from "../api/client.js";
 import { useAsync } from "../hooks/useAsync.js";
 import { Card } from "./cards.js";

@@ -1,4 +1,4 @@
-import { CORE_VERSION } from "@retrace/core";
+import { CORE_VERSION } from "retrace-core";
 import { CLI_VERSION } from "./version.js";
 
 export { CLI_VERSION };

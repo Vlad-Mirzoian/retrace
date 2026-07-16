@@ -26,9 +26,6 @@ importers:
       '@hono/node-server':
         specifier: ^2.0.8
         version: 2.0.8(hono@4.12.30)
-      '@retrace/core':
-        specifier: workspace:*
-        version: link:../core
       commander:
         specifier: ^15.0.0
         version: 15.0.0
@@ -38,6 +35,9 @@ importers:
       open:
         specifier: ^11.0.0
         version: 11.0.0
+      retrace-core:
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       '@retrace/viewer':
         specifier: workspace:*
@@ -51,9 +51,6 @@ importers:
 
   packages/viewer:
     dependencies:
-      '@retrace/core':
-        specifier: workspace:*
-        version: link:../core
       diff:
         specifier: ^9.0.0
         version: 9.0.0
@@ -69,6 +66,9 @@ importers:
       react-virtuoso:
         specifier: ^4.18.10
         version: 4.18.10(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      retrace-core:
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       '@testing-library/jest-dom':
         specifier: ^6.9.1
