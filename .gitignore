@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-export/
 .retrace/
 *.log
 .DS_Store

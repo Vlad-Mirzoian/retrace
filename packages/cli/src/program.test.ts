@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImportSummary, WatchHandle } from "./commands/import.js";
 import type { InitResult } from "./commands/init.js";
 import type { UiHandle } from "./commands/ui.js";
+import type { ExportResult } from "./commands/export.js";
 import { createProgram } from "./program.js";
 
 let home: string;
@@ -199,5 +200,69 @@ describe("createProgram — ui", () => {
     const [, options] = startUi.mock.calls[0];
     expect(options.openBrowser).toBe(false);
     process.emit("SIGINT");
+  });
+});
+
+describe("createProgram — export", () => {
+  it("defaults to HTML and reports the result", async () => {
+    const result: ExportResult = { path: "sess-1.html", format: "html", eventCount: 42 };
+    const exportSession = vi.fn().mockReturnValue(result);
+
+    const program = createProgram({ createStore: () => store, exportSession });
+    await program.parseAsync(["node", "retrace", "export", "sess-1"]);
+
+    expect(exportSession).toHaveBeenCalledTimes(1);
+    const [passedStore, sessionId, options] = exportSession.mock.calls[0];
+    expect(passedStore).toBe(store);
+    expect(sessionId).toBe("sess-1");
+    expect(options.format).toBe("html");
+    expect(output()).toMatch(/exported 42 event\(s\) to sess-1\.html/i);
+  });
+
+  it("exports as JSON when --json is given", async () => {
+    const exportSession = vi
+      .fn()
+      .mockReturnValue({ path: "sess-1.json", format: "json", eventCount: 1 });
+
+    const program = createProgram({ createStore: () => store, exportSession });
+    await program.parseAsync(["node", "retrace", "export", "sess-1", "--json"]);
+
+    const [, , options] = exportSession.mock.calls[0];
+    expect(options.format).toBe("json");
+  });
+
+  it("passes --output through to the injected exporter", async () => {
+    const exportSession = vi
+      .fn()
+      .mockReturnValue({ path: "/tmp/custom.html", format: "html", eventCount: 0 });
+
+    const program = createProgram({ createStore: () => store, exportSession });
+    await program.parseAsync([
+      "node",
+      "retrace",
+      "export",
+      "sess-1",
+      "--output",
+      "/tmp/custom.html",
+    ]);
+
+    const [, , options] = exportSession.mock.calls[0];
+    expect(options.output).toBe("/tmp/custom.html");
+  });
+
+  it("passes the cli-computed viewerExportDir through", async () => {
+    const exportSession = vi
+      .fn()
+      .mockReturnValue({ path: "sess-1.html", format: "html", eventCount: 0 });
+
+    const program = createProgram({
+      createStore: () => store,
+      exportSession,
+      viewerExportDir: "/embedded/viewer-export",
+    });
+    await program.parseAsync(["node", "retrace", "export", "sess-1"]);
+
+    const [, , options] = exportSession.mock.calls[0];
+    expect(options.viewerExportDir).toBe("/embedded/viewer-export");
   });
 });

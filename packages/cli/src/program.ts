@@ -18,6 +18,11 @@ import {
 } from "./commands/init.js";
 import { runHook as realRunHook } from "./commands/hook.js";
 import { startUi as realStartUi, type UiHandle, type UiOptions } from "./commands/ui.js";
+import {
+  exportSession as realExportSession,
+  type ExportOptions,
+  type ExportResult,
+} from "./commands/export.js";
 import { CLI_VERSION } from "./version.js";
 
 export interface ProgramDeps {
@@ -27,8 +32,11 @@ export interface ProgramDeps {
   initHooks?: (options: InitOptions) => InitResult;
   runHook?: (createStore: () => RetraceStore) => Promise<void>;
   startUi?: (store: RetraceStore, options?: UiOptions) => Promise<UiHandle>;
+  exportSession?: (store: RetraceStore, sessionId: string, options: ExportOptions) => ExportResult;
   /** Absolute path to the embedded viewer build; passed by cli.ts (see server/app.ts). */
   viewerDir?: string;
+  /** Absolute path to the embedded single-file export template; passed by cli.ts. */
+  viewerExportDir?: string;
 }
 
 interface ImportCommandOptions {
@@ -45,6 +53,11 @@ interface UiCommandOptions {
   open?: boolean;
 }
 
+interface ExportCommandOptions {
+  json?: boolean;
+  output?: string;
+}
+
 /**
  * Build the `retrace` commander program. Dependencies (store construction,
  * import functions) are injectable so command wiring can be tested without
@@ -57,6 +70,7 @@ export function createProgram(deps: ProgramDeps = {}): Command {
   const doInitHooks = deps.initHooks ?? realInitHooks;
   const doRunHook = deps.runHook ?? realRunHook;
   const doStartUi = deps.startUi ?? realStartUi;
+  const doExportSession = deps.exportSession ?? realExportSession;
 
   const program = new Command();
   program
@@ -162,6 +176,25 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       process.once("SIGTERM", stop);
       // As with `import --watch`, the server's own listening socket keeps the
       // process alive until `stop` runs — nothing to await here.
+    });
+
+  program
+    .command("export <sessionId>")
+    .description("Export a session as JSON or a self-contained HTML file (default: HTML)")
+    .option("--json", "export as a plain JSON file instead of HTML")
+    .option("--output <path>", "output file path (default: <sessionId>.json or .html)")
+    .action((sessionId: string, opts: ExportCommandOptions) => {
+      const store = createStore();
+      try {
+        const result = doExportSession(store, sessionId, {
+          format: opts.json ? "json" : "html",
+          output: opts.output,
+          viewerExportDir: deps.viewerExportDir,
+        });
+        console.log(`Exported ${result.eventCount} event(s) to ${result.path}`);
+      } finally {
+        store.close();
+      }
     });
 
   return program;
