@@ -2,6 +2,7 @@
   "name": "retrace",
   "private": true,
   "type": "module",
+  "license": "MIT",
   "packageManager": "pnpm@11.13.0",
   "scripts": {
     "build": "pnpm -r run build",
