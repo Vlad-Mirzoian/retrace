@@ -6,6 +6,7 @@ import {
   mkdirSync,
   openSync,
   readSync,
+  rmSync,
   statSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -38,6 +39,11 @@ export interface ImportState {
   size: number;
   mtimeMs: number;
   lastLine: number;
+}
+
+export interface DeletedSessionInfo {
+  /** Source transcript paths previously tied to this session via `import_state`, so the caller can re-import from them. */
+  importPaths: string[];
 }
 
 /** node:sqlite rejects `undefined` bindings; normalize to `null`. */
@@ -78,6 +84,12 @@ export class RetraceStore {
   private readonly selectEventPage: StatementSync;
   private readonly upsertImportState: StatementSync;
   private readonly selectImportState: StatementSync;
+  private readonly deleteSessionRow: StatementSync;
+  private readonly deleteSessionEvents: StatementSync;
+  private readonly selectImportPathsBySession: StatementSync;
+  private readonly deleteImportStateBySession: StatementSync;
+  private readonly selectSessionIdsByPrefix: StatementSync;
+  private readonly selectAllImportedSessionIds: StatementSync;
 
   constructor(homeDir: string = retraceHome()) {
     this.homeDir = homeDir;
@@ -141,6 +153,20 @@ export class RetraceStore {
     );
     this.selectImportState = this.db.prepare(
       `SELECT session_id, size, mtime_ms, last_line FROM import_state WHERE path = ?`,
+    );
+    this.deleteSessionRow = this.db.prepare(`DELETE FROM sessions WHERE id = ?`);
+    this.deleteSessionEvents = this.db.prepare(`DELETE FROM events WHERE session_id = ?`);
+    this.selectImportPathsBySession = this.db.prepare(
+      `SELECT path FROM import_state WHERE session_id = ?`,
+    );
+    this.deleteImportStateBySession = this.db.prepare(
+      `DELETE FROM import_state WHERE session_id = ?`,
+    );
+    this.selectSessionIdsByPrefix = this.db.prepare(
+      `SELECT id FROM sessions WHERE id LIKE ? ESCAPE '\\'`,
+    );
+    this.selectAllImportedSessionIds = this.db.prepare(
+      `SELECT DISTINCT session_id FROM import_state WHERE session_id IS NOT NULL`,
     );
   }
 
@@ -337,6 +363,69 @@ export class RetraceStore {
       state.size,
       state.mtimeMs,
       state.lastLine,
+    );
+  }
+
+  /**
+   * Resolve a full session id or a unique prefix of one — e.g. the 10 chars
+   * `list` truncates its SESSION column to — into its full id. Throws if
+   * nothing matches or if the prefix is ambiguous, rather than guessing.
+   */
+  resolveSessionId(idOrPrefix: string): string {
+    if (this.getSession(idOrPrefix)) return idOrPrefix;
+
+    const escaped = idOrPrefix.replace(/[\\%_]/g, (c) => `\\${c}`);
+    const rows = asRow<{ id: string }[]>(this.selectSessionIdsByPrefix.all(`${escaped}%`));
+    if (rows.length === 0) throw new Error(`no session matches "${idOrPrefix}"`);
+    if (rows.length > 1) {
+      throw new Error(
+        `"${idOrPrefix}" matches ${rows.length} sessions: ${rows.map((r) => r.id).join(", ")}`,
+      );
+    }
+    return rows[0].id;
+  }
+
+  /** Source transcript paths tied to this session via `import_state`, without deleting anything. */
+  getImportPathsForSession(sessionId: string): string[] {
+    return asRow<{ path: string }[]>(this.selectImportPathsBySession.all(sessionId)).map(
+      (row) => row.path,
+    );
+  }
+
+  /**
+   * Permanently remove a session's row, events, and import-tracking state,
+   * plus its on-disk `events.jsonl`/`raw.jsonl`. Returns the source transcript
+   * paths (if any) previously tied to this session via `import_state`, so the
+   * caller can re-import from them with the current parser — the mechanism
+   * behind `retrace reimport`, for undoing a parser bug's effect on data
+   * that's already been stored.
+   *
+   * This is destructive and unconditional: it does not check whether those
+   * source paths still exist on disk. Callers that intend to re-import from
+   * the returned paths must verify with {@link getImportPathsForSession}
+   * *first* — deleting the store's only copy of a session and then finding
+   * out its source transcript is gone loses that session's data for good.
+   *
+   * CAS objects the session referenced are left in place (no reference
+   * counting/GC yet) — harmless orphaned bytes, not a correctness issue.
+   */
+  deleteSession(sessionId: string): DeletedSessionInfo {
+    const importPaths = this.getImportPathsForSession(sessionId);
+
+    this.deleteSessionEvents.run(sessionId);
+    this.deleteImportStateBySession.run(sessionId);
+    this.deleteSessionRow.run(sessionId);
+    this.chainState.delete(sessionId);
+
+    rmSync(join(this.homeDir, "sessions", sessionId), { recursive: true, force: true });
+
+    return { importPaths };
+  }
+
+  /** Ids of sessions that have at least one known source transcript — i.e. came in via `import`, as opposed to existing purely from live `retrace hook` events. */
+  listImportedSessionIds(): string[] {
+    return asRow<{ session_id: string }[]>(this.selectAllImportedSessionIds.all()).map(
+      (row) => row.session_id,
     );
   }
 }

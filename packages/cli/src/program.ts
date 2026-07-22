@@ -9,6 +9,7 @@ import type {
 import type { InitOptions, InitResult } from "./commands/init.js";
 import type { UiHandle, UiOptions } from "./commands/ui.js";
 import type { ExportOptions, ExportResult } from "./commands/export.js";
+import type { ReimportAllSummary, ReimportResult } from "./commands/reimport.js";
 import { CLI_VERSION } from "./version.js";
 
 // Command implementations are pulled in only when their command actually runs.
@@ -23,6 +24,7 @@ const lazy = {
   hook: () => import("./commands/hook.js"),
   ui: () => import("./commands/ui.js"),
   export: () => import("./commands/export.js"),
+  reimport: () => import("./commands/reimport.js"),
 };
 
 export interface ProgramDeps {
@@ -33,6 +35,12 @@ export interface ProgramDeps {
   runHook?: (createStore: () => RetraceStore) => Promise<void>;
   startUi?: (store: RetraceStore, options?: UiOptions) => Promise<UiHandle>;
   exportSession?: (store: RetraceStore, sessionId: string, options: ExportOptions) => ExportResult;
+  reimportSession?: (
+    store: RetraceStore,
+    idOrPrefix: string,
+    log?: (message: string) => void,
+  ) => ReimportResult;
+  reimportAll?: (store: RetraceStore, log?: (message: string) => void) => ReimportAllSummary;
   /** Absolute path to the embedded viewer build; passed by cli.ts (see server/app.ts). */
   viewerDir?: string;
   /** Absolute path to the embedded single-file export template; passed by cli.ts. */
@@ -56,6 +64,10 @@ interface UiCommandOptions {
 interface ExportCommandOptions {
   json?: boolean;
   output?: string;
+}
+
+interface ReimportCommandOptions {
+  all?: boolean;
 }
 
 /**
@@ -193,6 +205,58 @@ export function createProgram(deps: ProgramDeps = {}): Command {
           viewerExportDir: deps.viewerExportDir,
         });
         console.log(`Exported ${result.eventCount} event(s) to ${result.path}`);
+      } finally {
+        store.close();
+      }
+    });
+
+  program
+    .command("reimport [sessionId]")
+    .description(
+      "Delete a session's stored data and re-import it from its source transcript " +
+        "(use after fixing a parser bug that already wrote bad data)",
+    )
+    .option("--all", "reimport every session that has a known source transcript")
+    .action(async (sessionId: string | undefined, opts: ReimportCommandOptions) => {
+      const mod = await lazy.reimport();
+      const reimportSession = deps.reimportSession ?? mod.reimportSession;
+      const reimportAll = deps.reimportAll ?? mod.reimportAll;
+      const store = createStore();
+      const log = (message: string) => console.log(message);
+      try {
+        if (opts.all) {
+          const { results, skipped, failed } = reimportAll(store, log);
+          for (const r of results) {
+            console.log(
+              `${r.sessionId}: re-imported ${r.eventsImported} event(s) from ${r.importPaths.length} file(s)`,
+            );
+          }
+          if (failed.length > 0) {
+            for (const f of failed) console.error(`${f.sessionId}: FAILED — ${f.error}`);
+            process.exitCode = 1;
+          }
+          if (skipped.length > 0) {
+            console.log(
+              `Skipped ${skipped.length} session(s) with no known source transcript: ${skipped.join(", ")}`,
+            );
+          }
+          return;
+        }
+
+        if (!sessionId) {
+          console.error("Provide a sessionId, or use --all to reimport every session.");
+          process.exitCode = 1;
+          return;
+        }
+
+        const result = reimportSession(store, sessionId, log);
+        if (result.importPaths.length === 0) {
+          console.log(`${result.sessionId}: deleted (no known source transcript to re-import from)`);
+        } else {
+          console.log(
+            `${result.sessionId}: re-imported ${result.eventsImported} event(s) from ${result.importPaths.length} file(s)`,
+          );
+        }
       } finally {
         store.close();
       }

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -167,6 +168,114 @@ describe("RetraceStore.readEvents", () => {
 
   it("returns an empty array for a session with no events", () => {
     expect(store.readEvents("ghost", 0, 10)).toEqual([]);
+  });
+});
+
+describe("RetraceStore.resolveSessionId", () => {
+  it("returns an exact id unchanged", () => {
+    store.appendEvent(prompt("session-abc", "hi"));
+    expect(store.resolveSessionId("session-abc")).toBe("session-abc");
+  });
+
+  it("resolves a unique prefix to its full id", () => {
+    store.appendEvent(prompt("25dffb61-c390-43db-91f6-4d19b02e4d5c", "hi"));
+    expect(store.resolveSessionId("25dffb61-c")).toBe("25dffb61-c390-43db-91f6-4d19b02e4d5c");
+  });
+
+  it("throws on a prefix matching no session", () => {
+    expect(() => store.resolveSessionId("nope")).toThrow(/no session matches/);
+  });
+
+  it("throws on a prefix matching more than one session", () => {
+    store.appendEvent(prompt("abc-111", "a"));
+    store.appendEvent(prompt("abc-222", "b"));
+    expect(() => store.resolveSessionId("abc-")).toThrow(/matches 2 sessions/);
+  });
+
+  it("treats % and _ in the prefix as literal characters, not SQL wildcards", () => {
+    store.appendEvent(prompt("weird_id", "a"));
+    store.appendEvent(prompt("weirdXid", "b"));
+    expect(store.resolveSessionId("weird_")).toBe("weird_id");
+  });
+});
+
+describe("RetraceStore.getImportPathsForSession", () => {
+  it("returns tied paths without deleting anything", () => {
+    store.appendEvent(prompt("s1", "one"));
+    store.setImportState("/transcripts/s1.jsonl", {
+      sessionId: "s1",
+      size: 10,
+      mtimeMs: 1,
+      lastLine: 1,
+    });
+
+    expect(store.getImportPathsForSession("s1")).toEqual(["/transcripts/s1.jsonl"]);
+    // Purely a lookup — the session and its import state are untouched.
+    expect(store.getSession("s1")).toBeDefined();
+    expect(store.getImportState("/transcripts/s1.jsonl")).toBeDefined();
+  });
+
+  it("returns an empty array for a session with no known source", () => {
+    store.appendEvent(prompt("hook-only", "hi"));
+    expect(store.getImportPathsForSession("hook-only")).toEqual([]);
+  });
+});
+
+describe("RetraceStore.deleteSession", () => {
+  it("removes the session row, its events, and its on-disk directory", () => {
+    store.appendEvent(prompt("s1", "one"));
+    store.appendEvent(prompt("s1", "two"));
+    const sessionDir = join(store.homeDir, "sessions", "s1");
+    expect(existsSync(sessionDir)).toBe(true);
+
+    const result = store.deleteSession("s1");
+    expect(result.importPaths).toEqual([]);
+    expect(store.getSession("s1")).toBeUndefined();
+    expect(store.readEvents("s1")).toEqual([]);
+    expect(existsSync(sessionDir)).toBe(false);
+  });
+
+  it("returns the import_state paths tied to the session, and clears that state", () => {
+    store.appendEvent(prompt("s1", "one"));
+    store.setImportState("/transcripts/s1.jsonl", {
+      sessionId: "s1",
+      size: 10,
+      mtimeMs: 1,
+      lastLine: 1,
+    });
+
+    const result = store.deleteSession("s1");
+    expect(result.importPaths).toEqual(["/transcripts/s1.jsonl"]);
+    expect(store.getImportState("/transcripts/s1.jsonl")).toBeUndefined();
+  });
+
+  it("lets a new chain start at seq 0 for a re-created session with the same id", () => {
+    store.appendEvent(prompt("s1", "one"));
+    store.appendEvent(prompt("s1", "two"));
+    store.deleteSession("s1");
+
+    const fresh = store.appendEvent(prompt("s1", "reborn"));
+    expect(fresh.seq).toBe(0);
+    expect(fresh.prevHash).toBeNull();
+  });
+
+  it("is safe to call on a session with no on-disk events directory", () => {
+    expect(() => store.deleteSession("never-existed")).not.toThrow();
+  });
+});
+
+describe("RetraceStore.listImportedSessionIds", () => {
+  it("lists only sessions with a known source transcript", () => {
+    store.appendEvent(prompt("hook-only", "from a live hook"));
+    store.appendEvent(prompt("imported", "from a transcript"));
+    store.setImportState("/transcripts/imported.jsonl", {
+      sessionId: "imported",
+      size: 10,
+      mtimeMs: 1,
+      lastLine: 1,
+    });
+
+    expect(store.listImportedSessionIds()).toEqual(["imported"]);
   });
 });
 

@@ -7,6 +7,7 @@ import type { ImportSummary, WatchHandle } from "./commands/import.js";
 import type { InitResult } from "./commands/init.js";
 import type { UiHandle } from "./commands/ui.js";
 import type { ExportResult } from "./commands/export.js";
+import type { ReimportAllSummary, ReimportResult } from "./commands/reimport.js";
 import { createProgram } from "./program.js";
 
 let home: string;
@@ -264,5 +265,84 @@ describe("createProgram — export", () => {
 
     const [, , options] = exportSession.mock.calls[0];
     expect(options.viewerExportDir).toBe("/embedded/viewer-export");
+  });
+});
+
+describe("createProgram — reimport", () => {
+  it("reimports a single session and reports the result", async () => {
+    const result: ReimportResult = {
+      sessionId: "sess-1",
+      importPaths: ["/transcripts/sess-1.jsonl"],
+      eventsImported: 12,
+    };
+    const reimportSession = vi.fn().mockReturnValue(result);
+
+    const program = createProgram({ createStore: () => store, reimportSession });
+    await program.parseAsync(["node", "retrace", "reimport", "sess-1"]);
+
+    expect(reimportSession).toHaveBeenCalledTimes(1);
+    const [passedStore, idOrPrefix] = reimportSession.mock.calls[0];
+    expect(passedStore).toBe(store);
+    expect(idOrPrefix).toBe("sess-1");
+    expect(output()).toMatch(/sess-1: re-imported 12 event\(s\) from 1 file\(s\)/i);
+  });
+
+  it("reports a hook-only session as deleted with nothing to re-import", async () => {
+    const reimportSession = vi
+      .fn()
+      .mockReturnValue({ sessionId: "hook-only", importPaths: [], eventsImported: 0 });
+
+    const program = createProgram({ createStore: () => store, reimportSession });
+    await program.parseAsync(["node", "retrace", "reimport", "hook-only"]);
+
+    expect(output()).toMatch(/hook-only: deleted \(no known source transcript/i);
+  });
+
+  it("requires a sessionId when --all is not given", async () => {
+    const reimportSession = vi.fn();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram({ createStore: () => store, reimportSession });
+    await program.parseAsync(["node", "retrace", "reimport"]);
+
+    expect(reimportSession).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it("reimports every session and reports skipped ones with --all", async () => {
+    const summary: ReimportAllSummary = {
+      results: [{ sessionId: "sess-1", importPaths: ["/t/sess-1.jsonl"], eventsImported: 5 }],
+      skipped: ["hook-only"],
+      failed: [],
+    };
+    const reimportAll = vi.fn().mockReturnValue(summary);
+
+    const program = createProgram({ createStore: () => store, reimportAll });
+    await program.parseAsync(["node", "retrace", "reimport", "--all"]);
+
+    expect(reimportAll).toHaveBeenCalledTimes(1);
+    expect(output()).toMatch(/sess-1: re-imported 5 event\(s\) from 1 file\(s\)/i);
+    expect(output()).toMatch(/skipped 1 session\(s\).*hook-only/i);
+  });
+
+  it("reports failed sessions via console.error and sets a non-zero exit code, without stopping the rest", async () => {
+    const summary: ReimportAllSummary = {
+      results: [{ sessionId: "sess-good", importPaths: ["/t/sess-good.jsonl"], eventsImported: 3 }],
+      skipped: [],
+      failed: [{ sessionId: "sess-gone", error: "source transcript(s) no longer on disk: /t/x" }],
+    };
+    const reimportAll = vi.fn().mockReturnValue(summary);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram({ createStore: () => store, reimportAll });
+    await program.parseAsync(["node", "retrace", "reimport", "--all"]);
+
+    expect(output()).toMatch(/sess-good: re-imported 3 event\(s\)/i);
+    expect(errorSpy.mock.calls.join("\n")).toMatch(/sess-gone: FAILED.*no longer on disk/i);
+    expect(process.exitCode).toBe(1);
+
+    errorSpy.mockRestore();
+    process.exitCode = 0;
   });
 });
