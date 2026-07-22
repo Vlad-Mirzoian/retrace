@@ -5,6 +5,15 @@ import type { RetraceEvent, RetraceStore, SessionRow } from "retrace-core";
 export interface ExportedSession {
   session: SessionRow;
   events: RetraceEvent[];
+  /**
+   * The CAS objects this session's events point at, keyed by hash — the file
+   * snapshots a hook captured. Without them an exported file would have to
+   * reach back to a running server to draw its diffs, which defeats the point
+   * of the export. Oversized payload bodies are *not* in here: the store
+   * already restores those inline when reading, so embedding them again would
+   * just duplicate the bytes.
+   */
+  objects: Record<string, string>;
 }
 
 export type ExportFormat = "json" | "html";
@@ -33,10 +42,33 @@ function collectAllEvents(store: RetraceStore, sessionId: string, pageSize = 500
   }
 }
 
+/**
+ * Gather the CAS objects the viewer resolves at render time. That is exactly
+ * the file snapshots referenced by `file_change` events — mirroring
+ * FileChangeCard, the viewer's only runtime object lookup.
+ */
+function collectObjects(store: RetraceStore, events: RetraceEvent[]): Record<string, string> {
+  const objects: Record<string, string> = {};
+  for (const event of events) {
+    if (event.kind !== "file_change") continue;
+    for (const hash of [event.payload.beforeRef, event.payload.afterRef]) {
+      if (!hash || hash in objects) continue;
+      try {
+        objects[hash] = store.objects.getTextSync(hash);
+      } catch {
+        // A snapshot that's gone from the store shouldn't sink the whole
+        // export; the card degrades to "failed to load" for that one diff.
+      }
+    }
+  }
+  return objects;
+}
+
 function buildExportedSession(store: RetraceStore, sessionId: string): ExportedSession {
   const session = store.getSession(sessionId);
   if (!session) throw new Error(`session not found: ${sessionId}`);
-  return { session, events: collectAllEvents(store, sessionId) };
+  const events = collectAllEvents(store, sessionId);
+  return { session, events, objects: collectObjects(store, events) };
 }
 
 /**

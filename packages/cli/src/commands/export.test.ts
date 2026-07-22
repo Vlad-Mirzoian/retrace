@@ -153,3 +153,104 @@ describe("exportSession — html", () => {
     expect(dataScriptMatch![0]).toContain("\\u003cscript>alert(1)");
   });
 });
+
+describe("exportSession — bundling file snapshots", () => {
+  let viewerExportDir: string;
+
+  beforeEach(async () => {
+    viewerExportDir = await mkdtemp(join(tmpdir(), "retrace-export-template-"));
+    await writeFile(
+      join(viewerExportDir, "export.html"),
+      "<html><head><title>t</title></head><body>SPA</body></html>",
+      "utf8",
+    );
+  });
+
+  afterEach(async () => {
+    await rm(viewerExportDir, { recursive: true, force: true });
+  });
+
+  /** A hook-recorded file_change, whose diff sides live in the CAS. */
+  async function seedFileChange() {
+    const beforeRef = await store.objects.put("THE ORIGINAL FILE BODY");
+    const afterRef = await store.objects.put("THE REPLACEMENT FILE BODY");
+    store.appendEvent({
+      ts: "2026-07-15T14:37:00.000Z",
+      sessionId: "sess-1",
+      kind: "file_change",
+      payload: { path: "/repo/config.json", operation: "write", beforeRef, afterRef },
+      artifactRefs: [beforeRef, afterRef],
+    });
+    store.ensureSession({ id: "sess-1" });
+    return { beforeRef, afterRef };
+  }
+
+  it("bundles the snapshots an exported session needs to draw its diffs", async () => {
+    const { beforeRef, afterRef } = await seedFileChange();
+    const output = join(outDir, "snap.json");
+
+    exportSession(store, "sess-1", { format: "json", output });
+    const written = JSON.parse(await readFile(output, "utf8"));
+
+    expect(written.objects[beforeRef]).toBe("THE ORIGINAL FILE BODY");
+    expect(written.objects[afterRef]).toBe("THE REPLACEMENT FILE BODY");
+  });
+
+  it("puts those snapshot bodies inside the standalone HTML itself", async () => {
+    await seedFileChange();
+    const output = join(outDir, "snap.html");
+
+    exportSession(store, "sess-1", { format: "html", viewerExportDir, output });
+    const html = await readFile(output, "utf8");
+
+    // Without these, an exported file would have to call back to a server that
+    // isn't running to render the diff.
+    expect(html).toContain("THE ORIGINAL FILE BODY");
+    expect(html).toContain("THE REPLACEMENT FILE BODY");
+  });
+
+  it("bundles nothing when a session references no snapshots", async () => {
+    seedSession();
+    const output = join(outDir, "plain.json");
+
+    exportSession(store, "sess-1", { format: "json", output });
+    const written = JSON.parse(await readFile(output, "utf8"));
+    expect(written.objects).toEqual({});
+  });
+
+  it("does not re-bundle an oversized payload the store already inlines on read", async () => {
+    // Offloaded bodies come back inline from readEvents, so re-embedding them
+    // would ship the same bytes twice.
+    const big = "z".repeat(9000);
+    store.appendEvent({
+      ts: "2026-07-15T14:37:00.000Z",
+      sessionId: "sess-1",
+      kind: "tool_result",
+      payload: { toolUseId: "t1", output: big },
+    });
+    store.ensureSession({ id: "sess-1" });
+    const output = join(outDir, "big.json");
+
+    exportSession(store, "sess-1", { format: "json", output });
+    const written = JSON.parse(await readFile(output, "utf8"));
+
+    expect(written.events[0].payload.output).toBe(big); // present, inline
+    expect(written.objects).toEqual({}); // and not a second copy
+  });
+
+  it("still exports when a referenced snapshot has gone missing from the store", async () => {
+    store.appendEvent({
+      ts: "2026-07-15T14:37:00.000Z",
+      sessionId: "sess-1",
+      kind: "file_change",
+      payload: { path: "/repo/gone.txt", operation: "write", beforeRef: "0".repeat(64) },
+    });
+    store.ensureSession({ id: "sess-1" });
+    const output = join(outDir, "missing.json");
+
+    expect(() => exportSession(store, "sess-1", { format: "json", output })).not.toThrow();
+    const written = JSON.parse(await readFile(output, "utf8"));
+    expect(written.objects).toEqual({});
+    expect(written.events).toHaveLength(1);
+  });
+});

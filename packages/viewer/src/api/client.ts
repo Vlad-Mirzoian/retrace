@@ -53,8 +53,22 @@ export async function getAllEvents(id: string, pageSize = 500): Promise<RetraceE
   }
 }
 
+/**
+ * Objects shipped inside an export bundle rather than served by an API. Lets
+ * the same cards render in a standalone HTML file, where there is no server
+ * to fetch from.
+ */
+const embeddedObjects = new Map<string, string>();
+
+export function registerEmbeddedObjects(objects: Record<string, string>): void {
+  for (const [hash, text] of Object.entries(objects)) embeddedObjects.set(hash, text);
+}
+
 /** Fetch a content-addressed object (a file snapshot) as text. */
 export async function getObjectText(hash: string): Promise<string> {
+  const embedded = embeddedObjects.get(hash);
+  if (embedded !== undefined) return embedded;
+
   const path = `/api/objects/${encodeURIComponent(hash)}`;
   const res = await fetch(path);
   if (!res.ok) throw new ApiError(res.status, `object ${hash.slice(0, 8)} not found`);

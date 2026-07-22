@@ -19,6 +19,7 @@ const session: SessionRow = {
   startedAt: "2026-07-15T14:37:00.000Z",
   endedAt: null,
   eventCount: 2,
+  toolCallCount: 1,
 };
 
 const events: RetraceEvent[] = [
