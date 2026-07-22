@@ -39,7 +39,15 @@ function seedSession() {
 
 describe("exportSession — json", () => {
   it("throws for an unknown session", () => {
-    expect(() => exportSession(store, "nope", { format: "json" })).toThrow(/session not found/);
+    expect(() => exportSession(store, "nope", { format: "json" })).toThrow(/no session matches/);
+  });
+
+  it("resolves a unique session id prefix", async () => {
+    seedSession();
+    const output = join(outDir, "out.json");
+
+    const result = exportSession(store, "sess-", { format: "json", output });
+    expect(result).toEqual({ path: output, format: "json", eventCount: 2 });
   });
 
   it("writes session metadata and every event to a JSON file", async () => {

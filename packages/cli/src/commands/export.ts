@@ -65,8 +65,7 @@ function collectObjects(store: RetraceStore, events: RetraceEvent[]): Record<str
 }
 
 function buildExportedSession(store: RetraceStore, sessionId: string): ExportedSession {
-  const session = store.getSession(sessionId);
-  if (!session) throw new Error(`session not found: ${sessionId}`);
+  const session = store.getSession(sessionId)!; // caller has already resolved this to a real id
   const events = collectAllEvents(store, sessionId);
   return { session, events, objects: collectObjects(store, events) };
 }
@@ -93,12 +92,16 @@ function defaultOutputPath(sessionId: string, format: ExportFormat): string {
  * event) or a self-contained HTML file — the built viewer's timeline with the
  * session's data embedded, viewable by double-clicking with no server and
  * nothing else to send.
+ *
+ * `idOrPrefix` may be a full session id or a unique prefix of one — e.g. the
+ * 10 chars `list` truncates its SESSION column to.
  */
 export function exportSession(
   store: RetraceStore,
-  sessionId: string,
+  idOrPrefix: string,
   options: ExportOptions,
 ): ExportResult {
+  const sessionId = store.resolveSessionId(idOrPrefix);
   const data = buildExportedSession(store, sessionId);
   const path = options.output ?? defaultOutputPath(sessionId, options.format);
 
