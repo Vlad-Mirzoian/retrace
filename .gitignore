@@ -5,3 +5,4 @@ dist-export/
 *.log
 .DS_Store
 coverage/
+*.tsbuildinfo

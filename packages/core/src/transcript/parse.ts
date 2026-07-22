@@ -87,14 +87,16 @@ function normalizeAssistant(record: RawRecord, base: DraftBase): RetraceEventDra
         });
       }
     } else if (b.type === "thinking" && typeof b.thinking === "string") {
-      out.push({
-        ...base,
-        kind: "thinking",
-        payload: {
-          text: b.thinking,
-          ...(typeof b.signature === "string" ? { signature: b.signature } : {}),
-        },
-      });
+      if (b.thinking.trim()) {
+        out.push({
+          ...base,
+          kind: "thinking",
+          payload: {
+            text: b.thinking,
+            ...(typeof b.signature === "string" ? { signature: b.signature } : {}),
+          },
+        });
+      }
     } else if (b.type === "tool_use") {
       out.push({
         ...base,
@@ -178,35 +180,62 @@ export function splitTranscriptLines(text: string): string[] {
  * accumulated session metadata. `fallbackTs` seeds the timestamp used for
  * records that omit their own — pass the previously-seen timestamp when
  * parsing a slice that continues an earlier import, so a fresh import doesn't
- * fall back to the epoch for a mid-session slice. Tolerant by design:
- * unparseable lines become `meta` events rather than aborting the parse.
+ * fall back to the epoch for a mid-session slice.
+ *
+ * When `fallbackTs` is omitted (no prior timestamp is known — e.g. the very
+ * first import of a session), leading records that carry no timestamp of
+ * their own are held back and backfilled with the first real timestamp seen
+ * later in this same batch, rather than being stamped with an arbitrary
+ * sentinel that would otherwise get pinned as the session's `started_at`
+ * forever (see store.ts's `COALESCE(started_at, ...)`). If the whole batch
+ * never carries a real timestamp, they're stamped with the current time.
+ *
+ * Tolerant by design: unparseable lines become `meta` events rather than
+ * aborting the parse.
  */
 export function parseTranscriptLines(
   lines: string[],
   sessionId: string,
-  fallbackTs = new Date(0).toISOString(),
+  fallbackTs?: string,
 ): ParsedTranscript {
   const events: RetraceEventDraft[] = [];
   const session: Partial<SessionInfo> = { id: sessionId };
   let lastTs = fallbackTs;
+  const pending: RetraceEventDraft[] = [];
 
   for (const line of lines) {
     let record: RawRecord | null;
     try {
       record = JSON.parse(line) as RawRecord;
     } catch {
-      events.push({
-        ts: lastTs,
+      const draft: RetraceEventDraft = {
+        ts: lastTs ?? "",
         sessionId,
         kind: "meta",
         payload: { originalType: "parse-error", note: "unparseable JSONL line" },
-      });
+      };
+      events.push(draft);
+      if (lastTs === undefined) pending.push(draft);
       continue;
     }
 
     Object.assign(session, sessionInfoFromRecord(record));
     if (typeof record.timestamp === "string") lastTs = record.timestamp;
-    events.push(...normalizeRecord(record, { sessionId, fallbackTs: lastTs }));
+
+    const produced = normalizeRecord(record, { sessionId, fallbackTs: lastTs ?? "" });
+    events.push(...produced);
+
+    if (lastTs === undefined) {
+      pending.push(...produced);
+    } else if (pending.length > 0) {
+      for (const draft of pending) draft.ts = lastTs;
+      pending.length = 0;
+    }
+  }
+
+  if (pending.length > 0) {
+    const now = new Date().toISOString();
+    for (const draft of pending) draft.ts = now;
   }
 
   return { sessionId, session, events };

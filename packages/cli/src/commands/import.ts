@@ -91,7 +91,7 @@ export function importFile(
     return { path: filePath, sessionId, imported: 0, skipped: true };
   }
 
-  const fallbackTs = store.getSession(sessionId)?.endedAt ?? new Date(0).toISOString();
+  const fallbackTs = store.getSession(sessionId)?.endedAt ?? undefined;
   const parsed = parseTranscriptLines(newLines, sessionId, fallbackTs);
 
   store.ensureSession({ ...parsed.session, id: sessionId, project });

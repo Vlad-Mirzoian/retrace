@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { RetraceEventDraft } from "../schema.js";
-import { normalizeRecord, parseTranscript, sessionInfoFromRecord } from "./parse.js";
+import {
+  normalizeRecord,
+  parseTranscript,
+  parseTranscriptLines,
+  sessionInfoFromRecord,
+} from "./parse.js";
 
 function fixture(name: string): string {
   return readFileSync(
@@ -95,6 +100,44 @@ describe("parseTranscript — basic session", () => {
   });
 });
 
+describe("parseTranscriptLines — backfills leading timestamps", () => {
+  it("stamps records that precede the first real timestamp with that timestamp, not the epoch", () => {
+    const lines = [
+      JSON.stringify({ type: "ai-title", aiTitle: "untimed" }),
+      JSON.stringify({ type: "unknown-thing", note: "also untimed" }),
+      JSON.stringify({
+        type: "user",
+        timestamp: "2026-07-15T14:37:00.500Z",
+        message: { role: "user", content: "hi" },
+      }),
+    ];
+
+    const parsed = parseTranscriptLines(lines, "sess-new");
+
+    // ai-title is skipped (known service record); the untimed unknown record
+    // and the timed user record remain.
+    expect(parsed.events).toHaveLength(2);
+    for (const event of parsed.events) {
+      expect(event.ts).toBe("2026-07-15T14:37:00.500Z");
+    }
+  });
+
+  it("respects a real fallbackTs from a prior import instead of backfilling", () => {
+    const lines = [JSON.stringify({ type: "unknown-thing", note: "untimed" })];
+    const parsed = parseTranscriptLines(lines, "sess-resumed", "2026-07-15T00:00:00.000Z");
+    expect(parsed.events[0]?.ts).toBe("2026-07-15T00:00:00.000Z");
+  });
+
+  it("falls back to the current time when a batch never carries a real timestamp", () => {
+    const before = Date.now();
+    const lines = [JSON.stringify({ type: "unknown-thing", note: "untimed" })];
+    const parsed = parseTranscriptLines(lines, "sess-untimed");
+    const ts = Date.parse(parsed.events[0]?.ts ?? "");
+    expect(ts).toBeGreaterThanOrEqual(before);
+    expect(ts).toBeLessThanOrEqual(Date.now());
+  });
+});
+
 describe("parseTranscript — subagent session", () => {
   const parsed = parseTranscript(fixture("subagent-session.jsonl"), "sess-sub");
 
@@ -140,6 +183,26 @@ describe("normalizeRecord", () => {
       ctx,
     );
     expect(events).toEqual([]);
+  });
+
+  it("drops empty/whitespace-only thinking blocks", () => {
+    const events = normalizeRecord(
+      {
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "thinking", thinking: "" }] },
+      },
+      ctx,
+    );
+    expect(events).toEqual([]);
+
+    const whitespaceOnly = normalizeRecord(
+      {
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "thinking", thinking: "   \n  " }] },
+      },
+      ctx,
+    );
+    expect(whitespaceOnly).toEqual([]);
   });
 
   it("does not throw on malformed content blocks", () => {
