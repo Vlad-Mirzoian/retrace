@@ -12,7 +12,9 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { ContentStore } from "./cas.js";
 import { sealEvent } from "./chain.js";
+import { deflatePayload, inflateEvent } from "./offload.js";
 import {
+  RETRACE_SCHEMA_VERSION,
   RetraceEvent,
   type RetraceEventDraft,
   type SessionInfo,
@@ -108,9 +110,18 @@ export class RetraceStore {
            last_hash = ?
        WHERE id = ?`,
     );
-    this.selectSession = this.db.prepare(`SELECT * FROM sessions WHERE id = ?`);
+    // Tool-call counts are derived from the event index rather than kept as a
+    // counter column, so they can never drift out of sync with the events
+    // actually stored.
+    const sessionColumns = `s.*, (
+      SELECT COUNT(*) FROM events e
+      WHERE e.session_id = s.id AND e.kind = 'tool_call'
+    ) AS tool_call_count`;
+    this.selectSession = this.db.prepare(
+      `SELECT ${sessionColumns} FROM sessions s WHERE s.id = ?`,
+    );
     this.selectSessions = this.db.prepare(
-      `SELECT * FROM sessions ORDER BY started_at DESC`,
+      `SELECT ${sessionColumns} FROM sessions s ORDER BY s.started_at DESC`,
     );
     this.selectChainState = this.db.prepare(
       `SELECT last_seq, last_hash FROM sessions WHERE id = ?`,
@@ -163,6 +174,9 @@ export class RetraceStore {
         byte_length  INTEGER NOT NULL,
         PRIMARY KEY (session_id, seq)
       );
+
+      -- Serves the per-session tool-call count and any kind-based filtering.
+      CREATE INDEX IF NOT EXISTS events_session_kind ON events (session_id, kind);
 
       CREATE TABLE IF NOT EXISTS import_state (
         path       TEXT PRIMARY KEY,
@@ -224,17 +238,33 @@ export class RetraceStore {
    * Seal a draft event into the session's hash chain, append it to
    * `events.jsonl`, and index it in SQLite. Creates the session row if this
    * is its first event.
+   *
+   * Returns the event in full; what lands on disk has any oversized payload
+   * strings swapped out for CAS references (see offload.ts), which
+   * {@link readEvents} transparently restores.
    */
   appendEvent(draft: RetraceEventDraft): RetraceEvent {
     this.ensureSession({ id: draft.sessionId });
 
+    // Offload first, so the refs it produces are sealed into the hash along
+    // with the payload they stand in for.
+    const { payload: deflatedPayload, refs } = deflatePayload(draft.payload, this.cas);
+    const sealable =
+      refs.length === 0
+        ? draft
+        : ({
+            ...draft,
+            artifactRefs: [...(draft.artifactRefs ?? []), ...refs],
+          } as RetraceEventDraft);
+
     const state = this.loadChainState(draft.sessionId);
-    const event = sealEvent(draft, state.seq, state.lastHash);
+    const event = sealEvent(sealable, state.seq, state.lastHash);
 
     const filePath = this.eventsPath(draft.sessionId);
     mkdirSync(dirname(filePath), { recursive: true });
     const offset = existsSync(filePath) ? statSync(filePath).size : 0;
-    const line = `${JSON.stringify(event)}\n`;
+    const stored = { v: RETRACE_SCHEMA_VERSION, ...event, payload: deflatedPayload };
+    const line = `${JSON.stringify(stored)}\n`;
     appendFileSync(filePath, line, "utf8");
     const byteLength = Buffer.byteLength(line, "utf8");
 
@@ -277,7 +307,10 @@ export class RetraceStore {
       return rows.map((row) => {
         const buffer = Buffer.alloc(row.byte_length);
         readSync(fd, buffer, 0, row.byte_length, row.jsonl_offset);
-        return RetraceEvent.parse(JSON.parse(buffer.toString("utf8")));
+        const stored = JSON.parse(buffer.toString("utf8")) as Record<string, unknown>;
+        // parse() also drops the stored `v` stamp, which is metadata about the
+        // record rather than part of the hashed event.
+        return RetraceEvent.parse(inflateEvent(stored, this.cas));
       });
     } finally {
       closeSync(fd);
@@ -319,6 +352,7 @@ interface SessionRowSql {
   started_at: string | null;
   ended_at: string | null;
   event_count: number;
+  tool_call_count: number;
 }
 
 function toSessionRow(row: SessionRowSql): SessionRow {
@@ -333,5 +367,6 @@ function toSessionRow(row: SessionRowSql): SessionRow {
     startedAt: row.started_at,
     endedAt: row.ended_at,
     eventCount: row.event_count,
+    toolCallCount: row.tool_call_count,
   };
 }

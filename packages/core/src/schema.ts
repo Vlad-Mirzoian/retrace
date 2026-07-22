@@ -32,6 +32,8 @@ export interface SessionRow {
   startedAt: string | null;
   endedAt: string | null;
   eventCount: number;
+  /** How many of this session's events are tool calls. */
+  toolCallCount: number;
 }
 
 /**

@@ -103,6 +103,45 @@ describe("RetraceStore.listSessions / getSession", () => {
   it("returns undefined for an unknown session", () => {
     expect(store.getSession("nope")).toBeUndefined();
   });
+
+  it("counts only tool calls in toolCallCount, separately from eventCount", () => {
+    store.appendEvent(prompt("s1", "do the thing"));
+    for (const toolUseId of ["t1", "t2"]) {
+      store.appendEvent({
+        ts: "2026-07-15T14:37:00.000Z",
+        sessionId: "s1",
+        kind: "tool_call",
+        payload: { toolName: "Bash", toolUseId, input: {} },
+      });
+      store.appendEvent({
+        ts: "2026-07-15T14:37:01.000Z",
+        sessionId: "s1",
+        kind: "tool_result",
+        payload: { toolUseId, output: "ok" },
+      });
+    }
+
+    const session = store.getSession("s1");
+    expect(session?.eventCount).toBe(5);
+    expect(session?.toolCallCount).toBe(2);
+    expect(store.listSessions()[0].toolCallCount).toBe(2);
+  });
+
+  it("reports zero tool calls for a session that made none", () => {
+    store.appendEvent(prompt("s1", "just chatting"));
+    expect(store.getSession("s1")?.toolCallCount).toBe(0);
+  });
+
+  it("does not count another session's tool calls", () => {
+    store.appendEvent({
+      ts: "2026-07-15T14:37:00.000Z",
+      sessionId: "s1",
+      kind: "tool_call",
+      payload: { toolName: "Bash", toolUseId: "t1", input: {} },
+    });
+    store.appendEvent(prompt("s2", "no tools here"));
+    expect(store.getSession("s2")?.toolCallCount).toBe(0);
+  });
 });
 
 describe("RetraceStore.readEvents", () => {

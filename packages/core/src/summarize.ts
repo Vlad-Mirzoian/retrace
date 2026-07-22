@@ -8,6 +8,29 @@ import type { RetraceEventDraft } from "./schema.js";
 
 const MAX_SUMMARY_LENGTH = 120;
 
+/**
+ * How long a session ran, as a compact label ("4m 12s"). Returns null when
+ * either end is missing or the timestamps don't parse — sessions are stamped
+ * from transcript data, which isn't guaranteed well-formed.
+ */
+export function formatDuration(
+  startedAt: string | null,
+  endedAt: string | null,
+): string | null {
+  if (!startedAt || !endedAt) return null;
+  const ms = Date.parse(endedAt) - Date.parse(startedAt);
+  if (!Number.isFinite(ms) || ms < 0) return null;
+
+  const totalSeconds = Math.round(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 function truncate(text: string): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
   return oneLine.length > MAX_SUMMARY_LENGTH

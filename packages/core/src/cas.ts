@@ -1,9 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
-import { gunzip, gzip } from "node:zlib";
+import { gunzip, gunzipSync, gzip, gzipSync } from "node:zlib";
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -39,10 +45,38 @@ export class ContentStore {
     return hash;
   }
 
+  /**
+   * Synchronous {@link put}. Used on the store's append path, which is sync
+   * end-to-end (see store.ts) — offloading a payload must not force every
+   * caller of `appendEvent` to become async.
+   */
+  putSync(data: Buffer | string): string {
+    const buf = typeof data === "string" ? Buffer.from(data, "utf8") : data;
+    const hash = createHash("sha256").update(buf).digest("hex");
+    const dest = this.pathFor(hash);
+    if (existsSync(dest)) return hash; // dedup: identical content already stored
+
+    mkdirSync(dirname(dest), { recursive: true });
+    const tmp = `${dest}.tmp-${randomUUID()}`;
+    writeFileSync(tmp, gzipSync(buf));
+    renameSync(tmp, dest);
+    return hash;
+  }
+
   /** Retrieve and decompress content by hash. Throws if the object is missing. */
   async get(hash: string): Promise<Buffer> {
     const compressed = await readFile(this.pathFor(hash));
     return gunzipAsync(compressed);
+  }
+
+  /** Synchronous {@link get}; counterpart to {@link putSync}. */
+  getSync(hash: string): Buffer {
+    return gunzipSync(readFileSync(this.pathFor(hash)));
+  }
+
+  /** Synchronous {@link getText}. */
+  getTextSync(hash: string): string {
+    return this.getSync(hash).toString("utf8");
   }
 
   /** Retrieve content as a UTF-8 string. */
