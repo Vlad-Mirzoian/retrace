@@ -1,3 +1,4 @@
+import { formatDuration } from "retrace-core/browser";
 import { Link } from "react-router-dom";
 import { listSessions } from "../api/client.js";
 import { useAsync } from "../hooks/useAsync.js";
@@ -30,7 +31,9 @@ export function SessionListPage() {
                 <th>Branch</th>
                 <th>Title</th>
                 <th>Started</th>
+                <th>Duration</th>
                 <th>Events</th>
+                <th>Tools</th>
               </tr>
             </thead>
             <tbody>
@@ -44,7 +47,9 @@ export function SessionListPage() {
                   <td>{session.gitBranch ?? "—"}</td>
                   <td>{session.title ?? "—"}</td>
                   <td>{formatTimestamp(session.startedAt)}</td>
+                  <td>{formatDuration(session.startedAt, session.endedAt) ?? "—"}</td>
                   <td>{session.eventCount}</td>
+                  <td>{session.toolCallCount}</td>
                 </tr>
               ))}
             </tbody>

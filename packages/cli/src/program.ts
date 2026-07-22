@@ -1,29 +1,29 @@
 import { Command } from "commander";
 import { RetraceStore } from "retrace-core";
-import {
-  defaultProjectsDir,
-  importOnce as realImportOnce,
-  watchImport as realWatchImport,
-  type ImportOptions,
-  type ImportSummary,
-  type WatchHandle,
-  type WatchImportOptions,
+import type {
+  ImportOptions,
+  ImportSummary,
+  WatchHandle,
+  WatchImportOptions,
 } from "./commands/import.js";
-import { formatSessionsTable } from "./commands/list.js";
-import {
-  initHooks as realInitHooks,
-  resolveSettingsPath,
-  type InitOptions,
-  type InitResult,
-} from "./commands/init.js";
-import { runHook as realRunHook } from "./commands/hook.js";
-import { startUi as realStartUi, type UiHandle, type UiOptions } from "./commands/ui.js";
-import {
-  exportSession as realExportSession,
-  type ExportOptions,
-  type ExportResult,
-} from "./commands/export.js";
+import type { InitOptions, InitResult } from "./commands/init.js";
+import type { UiHandle, UiOptions } from "./commands/ui.js";
+import type { ExportOptions, ExportResult } from "./commands/export.js";
 import { CLI_VERSION } from "./version.js";
+
+// Command implementations are pulled in only when their command actually runs.
+// `retrace hook` is spawned by Claude Code once per tool call and sits on the
+// critical path of every file edit, so it must not pay to load the HTTP server
+// (hono, @hono/node-server) or the browser launcher (open) that only `ui` needs.
+// Type-only imports above are erased at compile time and cost nothing.
+const lazy = {
+  import: () => import("./commands/import.js"),
+  list: () => import("./commands/list.js"),
+  init: () => import("./commands/init.js"),
+  hook: () => import("./commands/hook.js"),
+  ui: () => import("./commands/ui.js"),
+  export: () => import("./commands/export.js"),
+};
 
 export interface ProgramDeps {
   createStore?: () => RetraceStore;
@@ -65,12 +65,6 @@ interface ExportCommandOptions {
  */
 export function createProgram(deps: ProgramDeps = {}): Command {
   const createStore = deps.createStore ?? (() => new RetraceStore());
-  const doImportOnce = deps.importOnce ?? realImportOnce;
-  const doWatchImport = deps.watchImport ?? realWatchImport;
-  const doInitHooks = deps.initHooks ?? realInitHooks;
-  const doRunHook = deps.runHook ?? realRunHook;
-  const doStartUi = deps.startUi ?? realStartUi;
-  const doExportSession = deps.exportSession ?? realExportSession;
 
   const program = new Command();
   program
@@ -83,7 +77,7 @@ export function createProgram(deps: ProgramDeps = {}): Command {
     .description("Import Claude Code transcripts into the local Retrace store")
     .option("--watch", "keep watching for new/changed transcripts")
     .option("--projects-dir <dir>", "override the Claude Code projects directory to scan")
-    .action((opts: ImportCommandOptions) => {
+    .action(async (opts: ImportCommandOptions) => {
       const store = createStore();
       const importOptions: ImportOptions = {
         projectsDir: opts.projectsDir,
@@ -91,10 +85,11 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       };
 
       if (opts.watch) {
+        const { watchImport, defaultProjectsDir } = await lazy.import();
         console.log(
           `Watching ${importOptions.projectsDir ?? defaultProjectsDir()} for changes... (Ctrl+C to stop)`,
         );
-        const handle = doWatchImport(store, importOptions);
+        const handle = (deps.watchImport ?? watchImport)(store, importOptions);
         const stop = () => {
           handle.stop();
           store.close();
@@ -107,8 +102,9 @@ export function createProgram(deps: ProgramDeps = {}): Command {
         return;
       }
 
+      const importOnce = deps.importOnce ?? (await lazy.import()).importOnce;
       try {
-        const summary = doImportOnce(store, importOptions);
+        const summary = importOnce(store, importOptions);
         console.log(
           `Scanned ${summary.filesScanned} file(s), imported ${summary.eventsImported} event(s) from ${summary.filesChanged} changed file(s).`,
         );
@@ -120,7 +116,8 @@ export function createProgram(deps: ProgramDeps = {}): Command {
   program
     .command("list")
     .description("List recorded sessions, most recently started first")
-    .action(() => {
+    .action(async () => {
+      const { formatSessionsTable } = await lazy.list();
       const store = createStore();
       try {
         console.log(formatSessionsTable(store.listSessions()));
@@ -136,9 +133,10 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       "--global",
       "write to user settings (~/.claude/settings.json) instead of the project",
     )
-    .action((opts: InitCommandOptions) => {
+    .action(async (opts: InitCommandOptions) => {
+      const { initHooks, resolveSettingsPath } = await lazy.init();
       const settingsPath = resolveSettingsPath({ global: opts.global });
-      const result = doInitHooks({ settingsPath });
+      const result = (deps.initHooks ?? initHooks)({ settingsPath });
       if (!result.changed) {
         console.log(`Retrace hooks already present in ${result.settingsPath}`);
         return;
@@ -152,7 +150,8 @@ export function createProgram(deps: ProgramDeps = {}): Command {
     .command("hook")
     .description("Handle a Claude Code hook event from stdin (invoked by installed hooks)")
     .action(async () => {
-      await doRunHook(createStore);
+      const runHook = deps.runHook ?? (await lazy.hook()).runHook;
+      await runHook(createStore);
     });
 
   program
@@ -161,9 +160,10 @@ export function createProgram(deps: ProgramDeps = {}): Command {
     .option("--port <port>", "port to listen on (default: an OS-assigned free port)")
     .option("--no-open", "don't launch the system browser")
     .action(async (opts: UiCommandOptions) => {
+      const startUi = deps.startUi ?? (await lazy.ui()).startUi;
       const store = createStore();
       const port = opts.port !== undefined ? Number(opts.port) : undefined;
-      const handle = await doStartUi(store, {
+      const handle = await startUi(store, {
         port,
         openBrowser: opts.open,
         viewerDir: deps.viewerDir,
@@ -183,10 +183,11 @@ export function createProgram(deps: ProgramDeps = {}): Command {
     .description("Export a session as JSON or a self-contained HTML file (default: HTML)")
     .option("--json", "export as a plain JSON file instead of HTML")
     .option("--output <path>", "output file path (default: <sessionId>.json or .html)")
-    .action((sessionId: string, opts: ExportCommandOptions) => {
+    .action(async (sessionId: string, opts: ExportCommandOptions) => {
+      const exportSession = deps.exportSession ?? (await lazy.export()).exportSession;
       const store = createStore();
       try {
-        const result = doExportSession(store, sessionId, {
+        const result = exportSession(store, sessionId, {
           format: opts.json ? "json" : "html",
           output: opts.output,
           viewerExportDir: deps.viewerExportDir,

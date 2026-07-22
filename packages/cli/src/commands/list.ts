@@ -1,4 +1,4 @@
-import type { SessionRow } from "retrace-core";
+import { formatDuration, type SessionRow } from "retrace-core";
 
 const MAX_TITLE_LENGTH = 60;
 
@@ -26,7 +26,9 @@ const COLUMNS: Column[] = [
   { header: "BRANCH", value: (s) => s.gitBranch ?? "—" },
   { header: "TITLE", value: (s) => truncate(s.title ?? "—", MAX_TITLE_LENGTH) },
   { header: "STARTED", value: (s) => formatTimestamp(s.startedAt) },
+  { header: "DURATION", value: (s) => formatDuration(s.startedAt, s.endedAt) ?? "—" },
   { header: "EVENTS", value: (s) => String(s.eventCount) },
+  { header: "TOOLS", value: (s) => String(s.toolCallCount) },
 ];
 
 /** Render sessions as a simple fixed-width table, in the order given. */

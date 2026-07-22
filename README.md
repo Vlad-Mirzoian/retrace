@@ -69,12 +69,15 @@ Claude Code
                                  ├─ sessions/<id>/
                                  │   ├─ events.jsonl  (hash-chained events)
                                  │   └─ raw.jsonl      (raw transcript copy)
-                                 └─ objects/           (content-addressed file snapshots)
+                                 └─ objects/           (content-addressed bodies:
+                                                        file snapshots + large payloads)
                                                              ▼
                                  `retrace ui` → local API + timeline viewer
 ```
 
 Every session's events are normalized into a single schema and appended to a hash chain (each event's hash covers the one before it), so tampering is detectable — a small step toward the audit-trail use case this is ultimately aimed at. The raw transcript is always kept alongside the normalized events, since the format is undocumented and shifts between Claude Code versions.
+
+A few events carry most of a session's bytes — a long command's output, a long stretch of reasoning — so any body over 8 KB is moved into the content-addressed store and referenced by hash, which also collapses repeats (the same file read twice) to a single object. Reads restore it transparently, and because the hash is taken over the real body rather than the reference, swapping a stored object out still breaks verification.
 
 ## Development
 

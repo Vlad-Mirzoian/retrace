@@ -14,6 +14,7 @@ function session(overrides: Partial<SessionRow> = {}): SessionRow {
     startedAt: "2026-07-15T14:37:00.123Z",
     endedAt: "2026-07-15T15:00:00.000Z",
     eventCount: 42,
+    toolCallCount: 12,
     ...overrides,
   };
 }
@@ -32,7 +33,27 @@ describe("formatSessionsTable", () => {
     expect(lines[0]).toMatch(/BRANCH/);
     expect(lines[0]).toMatch(/TITLE/);
     expect(lines[0]).toMatch(/STARTED/);
+    expect(lines[0]).toMatch(/DURATION/);
     expect(lines[0]).toMatch(/EVENTS/);
+    expect(lines[0]).toMatch(/TOOLS/);
+  });
+
+  it("shows how long the session ran and how many tools it called", () => {
+    const table = formatSessionsTable([
+      session({
+        startedAt: "2026-07-15T14:37:00.000Z",
+        endedAt: "2026-07-15T15:00:00.000Z",
+        toolCallCount: 12,
+      }),
+    ]);
+    expect(table).toContain("23m 0s");
+    expect(table).toContain("12");
+  });
+
+  it("falls back to an em dash when a session has no end timestamp", () => {
+    const table = formatSessionsTable([session({ endedAt: null })]);
+    const dataRow = table.split("\n")[1];
+    expect(dataRow).toContain("—");
   });
 
   it("includes each session's data in its row", () => {

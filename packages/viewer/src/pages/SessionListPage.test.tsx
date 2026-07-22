@@ -19,6 +19,7 @@ function session(overrides: Partial<SessionRow> = {}): SessionRow {
     startedAt: "2026-07-15T14:37:00.000Z",
     endedAt: null,
     eventCount: 42,
+    toolCallCount: 12,
     ...overrides,
   };
 }

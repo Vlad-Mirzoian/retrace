@@ -73,7 +73,20 @@ async function fileChangeDraft(
     if (typeof input.new_string === "string") fileChange.newString = input.new_string;
   }
 
-  return { ts, sessionId, kind: "file_change", payload: fileChange };
+  // Declare the snapshots as artifacts of this event, so anything walking the
+  // log (export bundling, future GC) can find the objects it depends on
+  // without knowing file_change's payload shape.
+  const artifactRefs = [fileChange.beforeRef, fileChange.afterRef].filter(
+    (ref): ref is string => ref !== undefined,
+  );
+
+  return {
+    ts,
+    sessionId,
+    kind: "file_change",
+    payload: fileChange,
+    ...(artifactRefs.length > 0 ? { artifactRefs } : {}),
+  };
 }
 
 /**
