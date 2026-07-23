@@ -5,8 +5,10 @@ import {
   getEvents,
   getObjectText,
   getSession,
+  getVerification,
   listSessions,
   registerEmbeddedObjects,
+  registerEmbeddedVerification,
 } from "./client.js";
 
 const session: SessionRow = {
@@ -104,6 +106,23 @@ describe("getObjectText", () => {
     registerEmbeddedObjects({ [bundled]: "snapshot from the export bundle" });
 
     expect(await getObjectText(bundled)).toBe("snapshot from the export bundle");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("getVerification", () => {
+  it("fetches the verification endpoint when nothing is embedded", async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
+    const result = await getVerification("sess-1");
+    expect(fetch).toHaveBeenCalledWith("/api/sessions/sess-1/verify");
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("serves an embedded verdict without touching the network", async () => {
+    // This is what lets an exported HTML file show the same integrity badge.
+    registerEmbeddedVerification({ ok: false, index: 3, reason: "tampered" });
+
+    expect(await getVerification("sess-1")).toEqual({ ok: false, index: 3, reason: "tampered" });
     expect(fetch).not.toHaveBeenCalled();
   });
 });

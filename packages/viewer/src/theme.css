@@ -75,6 +75,18 @@ pre {
   font-size: 12px;
 }
 
+.verify-badge {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+.verify-ok {
+  color: #3fb950;
+}
+.verify-broken {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 /* --- timeline cards --- */
 
 .card {

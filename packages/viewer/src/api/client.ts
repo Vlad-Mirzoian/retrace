@@ -1,4 +1,11 @@
 import type { RetraceEvent, SessionRow } from "retrace-core/browser";
+// `ChainVerification` isn't re-exported from `retrace-core/browser`: chain.ts
+// (where it's defined) imports node:crypto as a *value* import for
+// verifyChain, so browser.ts deliberately excludes it. An `import type` is
+// erased entirely at build time, so pulling just the type from the main
+// entry never reaches the bundle — safe even though the value-level module
+// isn't browser-safe.
+import type { ChainVerification } from "retrace-core";
 
 export class ApiError extends Error {
   constructor(
@@ -73,4 +80,21 @@ export async function getObjectText(hash: string): Promise<string> {
   const res = await fetch(path);
   if (!res.ok) throw new ApiError(res.status, `object ${hash.slice(0, 8)} not found`);
   return res.text();
+}
+
+/**
+ * The verification verdict embedded in an export bundle, if any — mirrors
+ * `embeddedObjects`'s role for `getObjectText`, so a standalone export shows
+ * the same integrity badge without a server to ask.
+ */
+let embeddedVerification: ChainVerification | undefined;
+
+export function registerEmbeddedVerification(verification: ChainVerification): void {
+  embeddedVerification = verification;
+}
+
+/** Fetch (or read the bundle-embedded) tamper-evidence verdict for a session. */
+export function getVerification(id: string): Promise<ChainVerification> {
+  if (embeddedVerification) return Promise.resolve(embeddedVerification);
+  return getJson(`/api/sessions/${encodeURIComponent(id)}/verify`);
 }

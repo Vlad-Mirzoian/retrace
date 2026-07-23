@@ -2,7 +2,7 @@ import type { RetraceEvent, SessionRow } from "retrace-core/browser";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as client from "../api/client.js";
 import { SessionDetailPage } from "./SessionDetailPage.js";
 
@@ -61,6 +61,10 @@ function renderAtSession(id: string) {
     </MemoryRouter>,
   );
 }
+
+beforeEach(() => {
+  vi.mocked(client.getVerification).mockResolvedValue({ ok: true });
+});
 
 describe("SessionDetailPage", () => {
   it("renders the session header and its timeline", async () => {

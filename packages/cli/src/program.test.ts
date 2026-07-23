@@ -8,6 +8,7 @@ import type { InitResult } from "./commands/init.js";
 import type { UiHandle } from "./commands/ui.js";
 import type { ExportResult } from "./commands/export.js";
 import type { ReimportAllSummary, ReimportResult } from "./commands/reimport.js";
+import type { VerifyAllSummary, VerifyResult } from "./commands/verify.js";
 import { createProgram } from "./program.js";
 
 let home: string;
@@ -343,6 +344,81 @@ describe("createProgram — reimport", () => {
     expect(process.exitCode).toBe(1);
 
     errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
+});
+
+describe("createProgram — verify", () => {
+  it("verifies a single session and reports it as verified", async () => {
+    const result: VerifyResult = { sessionId: "sess-1", eventCount: 4, verification: { ok: true } };
+    const verifySession = vi.fn().mockReturnValue(result);
+
+    const program = createProgram({ createStore: () => store, verifySession });
+    await program.parseAsync(["node", "retrace", "verify", "sess-1"]);
+
+    expect(verifySession).toHaveBeenCalledTimes(1);
+    const [passedStore, idOrPrefix] = verifySession.mock.calls[0];
+    expect(passedStore).toBe(store);
+    expect(idOrPrefix).toBe("sess-1");
+    expect(output()).toMatch(/✓ sess-1: verified \(4 event\(s\)\)/);
+  });
+
+  it("reports a tampered session and sets a non-zero exit code", async () => {
+    const result: VerifyResult = {
+      sessionId: "sess-1",
+      eventCount: 4,
+      verification: { ok: false, index: 2, reason: "event hash does not match contents (tampered)" },
+    };
+    const verifySession = vi.fn().mockReturnValue(result);
+
+    const program = createProgram({ createStore: () => store, verifySession });
+    await program.parseAsync(["node", "retrace", "verify", "sess-1"]);
+
+    expect(output()).toMatch(/✗ sess-1: tampered at seq 2 — event hash does not match contents/);
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
+  });
+
+  it("requires a sessionId when --all is not given", async () => {
+    const verifySession = vi.fn();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram({ createStore: () => store, verifySession });
+    await program.parseAsync(["node", "retrace", "verify"]);
+
+    expect(verifySession).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
+
+  it("verifies every session with --all and sets a non-zero exit code if any failed", async () => {
+    const summary: VerifyAllSummary = {
+      results: [
+        { sessionId: "sess-good", eventCount: 2, verification: { ok: true } },
+        {
+          sessionId: "sess-bad",
+          eventCount: 3,
+          verification: { ok: false, index: 1, reason: "seq is not contiguous" },
+        },
+      ],
+      failed: [
+        {
+          sessionId: "sess-bad",
+          eventCount: 3,
+          verification: { ok: false, index: 1, reason: "seq is not contiguous" },
+        },
+      ],
+    };
+    const verifyAll = vi.fn().mockReturnValue(summary);
+
+    const program = createProgram({ createStore: () => store, verifyAll });
+    await program.parseAsync(["node", "retrace", "verify", "--all"]);
+
+    expect(verifyAll).toHaveBeenCalledTimes(1);
+    expect(output()).toMatch(/✓ sess-good: verified \(2 event\(s\)\)/);
+    expect(output()).toMatch(/✗ sess-bad: tampered at seq 1 — seq is not contiguous/);
+    expect(process.exitCode).toBe(1);
     process.exitCode = 0;
   });
 });

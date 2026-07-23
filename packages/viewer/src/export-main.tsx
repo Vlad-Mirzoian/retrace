@@ -1,7 +1,8 @@
+import type { ChainVerification } from "retrace-core";
 import type { RetraceEvent, SessionRow } from "retrace-core/browser";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { registerEmbeddedObjects } from "./api/client.js";
+import { registerEmbeddedObjects, registerEmbeddedVerification } from "./api/client.js";
 import { SessionHeader } from "./pages/SessionHeader.js";
 import { SessionTimelinePanel } from "./pages/SessionTimelinePanel.js";
 import "./theme.css";
@@ -11,6 +12,7 @@ interface ExportedData {
   session: SessionRow;
   events: RetraceEvent[];
   objects?: Record<string, string>;
+  verification?: ChainVerification;
 }
 
 declare global {
@@ -36,6 +38,7 @@ const data = window.__RETRACE_EXPORT__;
 // Make the bundled file snapshots resolvable before anything renders, so the
 // diff cards find them instead of reaching for an API that isn't there.
 if (data?.objects) registerEmbeddedObjects(data.objects);
+if (data?.verification) registerEmbeddedVerification(data.verification);
 
 createRoot(root).render(
   <StrictMode>

@@ -64,6 +64,15 @@ describe("exportSession — json", () => {
     expect(written.events[0].kind).toBe("user_prompt");
   });
 
+  it("bundles the tamper-evidence verdict alongside the session", async () => {
+    seedSession();
+    const output = join(outDir, "out.json");
+
+    exportSession(store, "sess-1", { format: "json", output });
+    const written = JSON.parse(await readFile(output, "utf8"));
+    expect(written.verification).toEqual({ ok: true });
+  });
+
   it("collects every event across pagination boundaries", async () => {
     for (let i = 0; i < 501; i++) {
       store.appendEvent({

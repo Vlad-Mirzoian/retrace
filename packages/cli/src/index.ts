@@ -13,5 +13,6 @@ export * from "./commands/hook.js";
 export * from "./commands/init.js";
 export * from "./commands/ui.js";
 export * from "./commands/export.js";
+export * from "./commands/verify.js";
 export * from "./server/app.js";
 export * from "./program.js";

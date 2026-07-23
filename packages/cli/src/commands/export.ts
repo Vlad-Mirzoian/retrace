@@ -1,6 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { RetraceEvent, RetraceStore, SessionRow } from "retrace-core";
+import {
+  verifyChain,
+  type ChainVerification,
+  type RetraceEvent,
+  type RetraceStore,
+  type SessionRow,
+} from "retrace-core";
+import { collectAllEvents } from "../events.js";
 
 export interface ExportedSession {
   session: SessionRow;
@@ -14,6 +21,12 @@ export interface ExportedSession {
    * just duplicate the bytes.
    */
   objects: Record<string, string>;
+  /**
+   * The tamper-evidence verdict for this session's hash chain, computed once
+   * at export time so the standalone file can show the same integrity badge
+   * the live viewer does, with no server to ask.
+   */
+  verification: ChainVerification;
 }
 
 export type ExportFormat = "json" | "html";
@@ -30,16 +43,6 @@ export interface ExportResult {
   path: string;
   format: ExportFormat;
   eventCount: number;
-}
-
-/** Page through the store until the whole session's events are collected. */
-function collectAllEvents(store: RetraceStore, sessionId: string, pageSize = 500): RetraceEvent[] {
-  const all: RetraceEvent[] = [];
-  for (;;) {
-    const page = store.readEvents(sessionId, all.length, pageSize);
-    all.push(...page);
-    if (page.length < pageSize) return all;
-  }
 }
 
 /**
@@ -67,7 +70,12 @@ function collectObjects(store: RetraceStore, events: RetraceEvent[]): Record<str
 function buildExportedSession(store: RetraceStore, sessionId: string): ExportedSession {
   const session = store.getSession(sessionId)!; // caller has already resolved this to a real id
   const events = collectAllEvents(store, sessionId);
-  return { session, events, objects: collectObjects(store, events) };
+  return {
+    session,
+    events,
+    objects: collectObjects(store, events),
+    verification: verifyChain(events),
+  };
 }
 
 /**

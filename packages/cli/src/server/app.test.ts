@@ -129,6 +129,27 @@ describe("GET /api/objects/:hash", () => {
   });
 });
 
+describe("GET /api/sessions/:id/verify", () => {
+  it("404s for an unknown session", async () => {
+    const app = createApp(store);
+    const res = await app.request("/api/sessions/nope/verify");
+    expect(res.status).toBe(404);
+  });
+
+  it("reports an untouched session's chain as verified", async () => {
+    store.appendEvent({
+      ts: "2026-07-15T14:37:00.000Z",
+      sessionId: "sess-1",
+      kind: "user_prompt",
+      payload: { text: "hi" },
+    });
+    const app = createApp(store);
+    const res = await app.request("/api/sessions/sess-1/verify");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+  });
+});
+
 describe("embedded viewer static serving", () => {
   let viewerDir: string;
 

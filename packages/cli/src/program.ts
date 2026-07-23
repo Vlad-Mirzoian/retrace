@@ -10,6 +10,7 @@ import type { InitOptions, InitResult } from "./commands/init.js";
 import type { UiHandle, UiOptions } from "./commands/ui.js";
 import type { ExportOptions, ExportResult } from "./commands/export.js";
 import type { ReimportAllSummary, ReimportResult } from "./commands/reimport.js";
+import type { VerifyAllSummary, VerifyResult } from "./commands/verify.js";
 import { CLI_VERSION } from "./version.js";
 
 // Command implementations are pulled in only when their command actually runs.
@@ -25,6 +26,7 @@ const lazy = {
   ui: () => import("./commands/ui.js"),
   export: () => import("./commands/export.js"),
   reimport: () => import("./commands/reimport.js"),
+  verify: () => import("./commands/verify.js"),
 };
 
 export interface ProgramDeps {
@@ -41,6 +43,8 @@ export interface ProgramDeps {
     log?: (message: string) => void,
   ) => ReimportResult;
   reimportAll?: (store: RetraceStore, log?: (message: string) => void) => ReimportAllSummary;
+  verifySession?: (store: RetraceStore, idOrPrefix: string) => VerifyResult;
+  verifyAll?: (store: RetraceStore) => VerifyAllSummary;
   /** Absolute path to the embedded viewer build; passed by cli.ts (see server/app.ts). */
   viewerDir?: string;
   /** Absolute path to the embedded single-file export template; passed by cli.ts. */
@@ -68,6 +72,18 @@ interface ExportCommandOptions {
 
 interface ReimportCommandOptions {
   all?: boolean;
+}
+
+interface VerifyCommandOptions {
+  all?: boolean;
+}
+
+/** "✓ id: verified (N event(s))" or "✗ id: tampered at seq S — <reason>". */
+function formatVerifyResult(result: VerifyResult): string {
+  if (result.verification.ok) {
+    return `✓ ${result.sessionId}: verified (${result.eventCount} event(s))`;
+  }
+  return `✗ ${result.sessionId}: tampered at seq ${result.verification.index} — ${result.verification.reason}`;
 }
 
 /**
@@ -257,6 +273,37 @@ export function createProgram(deps: ProgramDeps = {}): Command {
             `${result.sessionId}: re-imported ${result.eventsImported} event(s) from ${result.importPaths.length} file(s)`,
           );
         }
+      } finally {
+        store.close();
+      }
+    });
+
+  program
+    .command("verify [sessionId]")
+    .description("Verify a session's tamper-evident hash chain")
+    .option("--all", "verify every recorded session")
+    .action(async (sessionId: string | undefined, opts: VerifyCommandOptions) => {
+      const mod = await lazy.verify();
+      const verifySession = deps.verifySession ?? mod.verifySession;
+      const verifyAll = deps.verifyAll ?? mod.verifyAll;
+      const store = createStore();
+      try {
+        if (opts.all) {
+          const { results, failed } = verifyAll(store);
+          for (const result of results) console.log(formatVerifyResult(result));
+          if (failed.length > 0) process.exitCode = 1;
+          return;
+        }
+
+        if (!sessionId) {
+          console.error("Provide a sessionId, or use --all to verify every session.");
+          process.exitCode = 1;
+          return;
+        }
+
+        const result = verifySession(store, sessionId);
+        console.log(formatVerifyResult(result));
+        if (!result.verification.ok) process.exitCode = 1;
       } finally {
         store.close();
       }

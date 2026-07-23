@@ -2,8 +2,9 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
-import type { RetraceStore } from "retrace-core";
+import { verifyChain, type RetraceStore } from "retrace-core";
 import { Hono } from "hono";
+import { collectAllEvents } from "../events.js";
 
 function parsePositiveInt(value: string | undefined, fallback: number): number | null {
   if (value === undefined) return fallback;
@@ -61,6 +62,12 @@ export function createApp(store: RetraceStore, options: CreateAppOptions = {}): 
     } catch {
       return c.json({ error: "object not found" }, 404);
     }
+  });
+
+  app.get("/api/sessions/:id/verify", (c) => {
+    const id = c.req.param("id");
+    if (!store.getSession(id)) return c.json({ error: "session not found" }, 404);
+    return c.json(verifyChain(collectAllEvents(store, id)));
   });
 
   if (options.viewerDir && existsSync(options.viewerDir)) {
