@@ -85,6 +85,31 @@ describe("FinalStateDiff", () => {
     expect(screen.queryByText("gone.txt")).not.toBeInTheDocument();
   });
 
+  it("refuses to diff a path one run left without a snapshot, rather than showing it as emptied", async () => {
+    vi.mocked(client.getObjectText).mockResolvedValue("CONTENT FROM RUN A");
+    const a: RetraceEvent[] = [
+      {
+        ...base(0),
+        kind: "file_change",
+        payload: { path: "a.txt", operation: "write", afterRef: "hash-a" },
+      } as RetraceEvent,
+    ];
+    // Run B touched the same path but captured no content (e.g. an Edit
+    // recorded with only oldString/newString).
+    const b: RetraceEvent[] = [
+      {
+        ...base(0),
+        kind: "file_change",
+        payload: { path: "a.txt", operation: "edit", oldString: "x", newString: "y" },
+      } as RetraceEvent,
+    ];
+    render(<FinalStateDiff eventsA={a} eventsB={b} />);
+
+    expect(screen.getByText("a.txt")).toBeInTheDocument();
+    expect(screen.getByText(/no snapshot captured for run B/i)).toBeInTheDocument();
+    expect(screen.queryByText("CONTENT FROM RUN A")).not.toBeInTheDocument();
+  });
+
   it("shows a file present in only one run's final state", async () => {
     vi.mocked(client.getObjectText).mockResolvedValue("ONLY IN A");
     const a: RetraceEvent[] = [

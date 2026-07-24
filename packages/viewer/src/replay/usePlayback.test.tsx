@@ -78,6 +78,26 @@ describe("usePlayback", () => {
     expect(screen.getByTestId("seq")).toHaveTextContent(String(events[1].seq));
   });
 
+  it("steps onto the next visible row when the cursor sits in a filtered-out gap", () => {
+    // What SessionTimelinePanel hands usePlayback is the *filtered* list, so
+    // the cursor can legitimately point at an event no row covers. The first
+    // tick has to land on the next visible row, not skip over it.
+    const events = [prompt("a"), prompt("b"), prompt("c")];
+    const visible = groupEvents([events[2]]); // events 0 and 1 filtered out
+    render(
+      <ReplayProvider maxSeq={events[2].seq}>
+        <Harness items={visible} />
+      </ReplayProvider>,
+    );
+
+    fireEvent.click(screen.getByText("play"));
+    act(() => vi.advanceTimersByTime(BASE_INTERVAL_MS));
+    expect(screen.getByTestId("seq")).toHaveTextContent(String(events[2].seq));
+
+    act(() => vi.advanceTimersByTime(BASE_INTERVAL_MS));
+    expect(screen.getByTestId("playing")).toHaveTextContent("false");
+  });
+
   it("does nothing while paused", () => {
     const events = [prompt("a"), prompt("b")];
     renderHarness(events);

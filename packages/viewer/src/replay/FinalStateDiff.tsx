@@ -10,11 +10,18 @@ function lastSeq(events: RetraceEvent[]): number {
 
 interface DiffPath {
   path: string;
+  /** Content ref in each run's final tree, when that run captured a snapshot. */
   refA?: string;
   refB?: string;
+  /**
+   * Whether the path is in that run's final working tree at all. Present with
+   * no ref means the run left the file there but captured no content for it.
+   */
+  inA: boolean;
+  inB: boolean;
 }
 
-function FileDiffRow({ path, refA, refB }: DiffPath) {
+function FileDiffRow({ path, refA, refB, inA, inB }: DiffPath) {
   const state = useAsync(
     () =>
       Promise.all([
@@ -24,14 +31,29 @@ function FileDiffRow({ path, refA, refB }: DiffPath) {
     [refA, refB],
   );
 
+  // A run that left the file in place but captured no snapshot has no content
+  // to put on its side. Diffing against "" would read as "the other run
+  // emptied the file" — precisely the wrong conclusion to hand a forensic
+  // user — so say what's actually known instead. (An *absent* path is a
+  // different thing: diffing against "" there is correct, and intended.)
+  const unsnapshotted = (inA && !refA) || (inB && !refB);
+
   return (
     <div className="final-diff-file">
       <p className="file-path">{path}</p>
-      {state.status === "loading" && <p className="muted small">Loading…</p>}
-      {state.status === "error" && (
-        <p className="error small">Failed to load snapshot: {state.error.message}</p>
+      {unsnapshotted ? (
+        <p className="muted small">
+          (no snapshot captured for run {inA && !refA ? "A" : "B"} — content can&apos;t be compared)
+        </p>
+      ) : (
+        <>
+          {state.status === "loading" && <p className="muted small">Loading…</p>}
+          {state.status === "error" && (
+            <p className="error small">Failed to load snapshot: {state.error.message}</p>
+          )}
+          {state.status === "ready" && <DiffView oldText={state.data[0]} newText={state.data[1]} />}
+        </>
       )}
-      {state.status === "ready" && <DiffView oldText={state.data[0]} newText={state.data[1]} />}
     </div>
   );
 }
@@ -42,7 +64,8 @@ function FileDiffRow({ path, refA, refB }: DiffPath) {
  * against run B's. Often the most useful comparison — "what did each run
  * actually leave behind" — independent of how each run got there. A path
  * deleted by both runs isn't shown: there's nothing left in either final
- * tree to compare.
+ * tree to compare. Neither is a path both runs left unsnapshotted — with no
+ * content on either side there's no evidence they differ.
  */
 export function FinalStateDiff({
   eventsA,
@@ -60,7 +83,9 @@ export function FinalStateDiff({
     for (const path of allPaths) {
       const a = stateA.get(path);
       const b = stateB.get(path);
-      if (a?.ref !== b?.ref) rows.push({ path, refA: a?.ref, refB: b?.ref });
+      if (a?.ref !== b?.ref) {
+        rows.push({ path, refA: a?.ref, refB: b?.ref, inA: a !== undefined, inB: b !== undefined });
+      }
     }
     return rows.sort((x, y) => x.path.localeCompare(y.path));
   }, [eventsA, eventsB]);

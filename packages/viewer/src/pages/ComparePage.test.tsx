@@ -8,11 +8,8 @@ import { ComparePage } from "./ComparePage.js";
 vi.mock("../api/client.js");
 
 beforeEach(() => {
-  // ComparePage's hooks fire unconditionally even when ids are missing (it
-  // only skips rendering their result) — give them something to resolve to
-  // so the "missing id" tests don't hit an unhandled rejection.
-  vi.mocked(client.getSession).mockRejectedValue(new Error("no id"));
-  vi.mocked(client.getAllEvents).mockRejectedValue(new Error("no id"));
+  vi.mocked(client.getSession).mockReset();
+  vi.mocked(client.getAllEvents).mockReset();
 });
 
 function session(id: string, title: string): SessionRow {
@@ -44,12 +41,16 @@ function renderAt(search: string) {
 describe("ComparePage", () => {
   it("asks for both session ids when they're missing", () => {
     renderAt("");
-    expect(screen.getByText(/provide both a session to compare/i)).toBeInTheDocument();
+    expect(screen.getByText(/provide both sessions to compare/i)).toBeInTheDocument();
+    expect(client.getSession).not.toHaveBeenCalled();
+    expect(client.getAllEvents).not.toHaveBeenCalled();
   });
 
   it("asks for both session ids when only one is given", () => {
     renderAt("?a=sess-1");
-    expect(screen.getByText(/provide both a session to compare/i)).toBeInTheDocument();
+    expect(screen.getByText(/provide both sessions to compare/i)).toBeInTheDocument();
+    expect(client.getSession).not.toHaveBeenCalled();
+    expect(client.getAllEvents).not.toHaveBeenCalled();
   });
 
   it("loads and renders both runs' headers and timelines once ids are given", async () => {

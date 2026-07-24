@@ -9,20 +9,29 @@ export function ComparePage() {
   const idA = params.get("a") ?? "";
   const idB = params.get("b") ?? "";
 
-  const sessionA = useAsync(() => getSession(idA), [idA]);
-  const sessionB = useAsync(() => getSession(idB), [idB]);
-  const eventsA = useAsync(() => getAllEvents(idA), [idA]);
-  const eventsB = useAsync(() => getAllEvents(idB), [idB]);
-
   if (!idA || !idB) {
     return (
       <div className="page">
         <p className="error">
-          Provide both a session to compare: /compare?a=&lt;sessionId&gt;&amp;b=&lt;sessionId&gt;
+          Provide both sessions to compare: /compare?a=&lt;sessionId&gt;&amp;b=&lt;sessionId&gt;
         </p>
       </div>
     );
   }
+
+  return <CompareView idA={idA} idB={idB} />;
+}
+
+/**
+ * Split out so the fetches only ever mount with real ids — hooks can't be
+ * skipped by an early return, and firing them on an empty id would just queue
+ * four requests that are guaranteed to fail.
+ */
+function CompareView({ idA, idB }: { idA: string; idB: string }) {
+  const sessionA = useAsync(() => getSession(idA), [idA]);
+  const sessionB = useAsync(() => getSession(idB), [idB]);
+  const eventsA = useAsync(() => getAllEvents(idA), [idA]);
+  const eventsB = useAsync(() => getAllEvents(idB), [idB]);
 
   return (
     <div className="page">
