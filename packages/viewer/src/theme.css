@@ -283,6 +283,13 @@ pre {
   padding: 8px 0;
   margin-bottom: 10px;
   border-bottom: 1px solid var(--border);
+  /* Pinned so Play/Pause/step stay reachable no matter how far the replay
+     cursor has auto-scrolled the page — otherwise stopping playback means
+     scrolling all the way back up first. */
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 2;
 }
 .replay-controls button {
   background: var(--bg-elevated);
@@ -499,10 +506,6 @@ pre {
   padding: 8px 0;
   margin-bottom: 10px;
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  background: var(--bg);
-  z-index: 1;
 }
 .filter-search {
   background: var(--bg-elevated);

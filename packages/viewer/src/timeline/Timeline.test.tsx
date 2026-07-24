@@ -1,9 +1,31 @@
 import type { RetraceEvent } from "retrace-core/browser";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { forwardRef, useImperativeHandle } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { groupEvents } from "./grouping.js";
 import { Timeline } from "./Timeline.js";
+
+// The real Virtuoso needs a composited viewport (ResizeObserver/rAF) it
+// never gets under jsdom. Stub it with something that just renders every
+// item and exposes a spy-able scrollToIndex, so the "replay cursor"
+// describe block below can assert on *whether* Timeline asks it to scroll,
+// independent of Virtuoso's own (untestable-here) internals.
+const scrollToIndex = vi.hoisted(() => vi.fn());
+vi.mock("react-virtuoso", () => ({
+  Virtuoso: forwardRef((props: any, ref: any) => {
+    useImperativeHandle(ref, () => ({ scrollToIndex }));
+    return (
+      <div>
+        {props.data.map((item: unknown, i: number) => (
+          <div key={props.computeItemKey ? props.computeItemKey(i, item) : i}>
+            {props.itemContent(i, item)}
+          </div>
+        ))}
+      </div>
+    );
+  }),
+}));
 
 let seq = 0;
 function base() {
@@ -28,6 +50,10 @@ const thinking = (text: string): RetraceEvent =>
 function renderTimeline(events: RetraceEvent[]) {
   return render(<Timeline items={groupEvents(events)} />);
 }
+
+beforeEach(() => {
+  scrollToIndex.mockClear();
+});
 
 describe("Timeline", () => {
   it("shows an empty state when there is nothing to render", () => {
@@ -116,6 +142,44 @@ describe("Timeline", () => {
       render(<Timeline items={items} />);
       expect(screen.queryByText("sub work")).not.toBeInTheDocument();
       expect(document.querySelector(".timeline-row.active")).toBeNull();
+    });
+  });
+
+  describe("auto-scroll", () => {
+    it("does not scroll on initial mount, even with a cursor already set", () => {
+      const first = prompt("first");
+      const second = prompt("second");
+      render(<Timeline items={groupEvents([first, second])} currentSeq={second.seq} />);
+      expect(scrollToIndex).not.toHaveBeenCalled();
+    });
+
+    it("scrolls to the new row when the cursor genuinely moves", () => {
+      const first = prompt("first");
+      const second = prompt("second");
+      const items = groupEvents([first, second]);
+
+      const { rerender } = render(<Timeline items={items} currentSeq={first.seq} />);
+      expect(scrollToIndex).not.toHaveBeenCalled();
+
+      rerender(<Timeline items={items} currentSeq={second.seq} />);
+      expect(scrollToIndex).toHaveBeenCalledWith(
+        expect.objectContaining({ index: 1, behavior: "smooth" }),
+      );
+    });
+
+    it("does not scroll when the visible item list changes but the cursor doesn't — e.g. toggling a filter", () => {
+      const first = prompt("first");
+      const second = prompt("second");
+      const third = prompt("third");
+      const allItems = groupEvents([first, second, third]);
+      const filtered = groupEvents([first, third]); // "second" filtered out; cursor stays put
+
+      const { rerender } = render(<Timeline items={allItems} currentSeq={first.seq} />);
+      rerender(<Timeline items={allItems} currentSeq={second.seq} />);
+      scrollToIndex.mockClear();
+
+      rerender(<Timeline items={filtered} currentSeq={second.seq} />);
+      expect(scrollToIndex).not.toHaveBeenCalled();
     });
   });
 });

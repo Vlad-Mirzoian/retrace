@@ -92,17 +92,32 @@ export function Timeline({
   onSelect?: (seq: number) => void;
 }) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+  // Read inside the effect without making `items` a dependency — filtering
+  // must never trigger a scroll (see below), but the index still has to
+  // resolve against whatever's currently visible.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const mounted = useRef(false);
 
   useEffect(() => {
+    // Skip the mount run: currentSeq starts at 0 on every page load, and
+    // immediately centering row 0 would yank the viewport away from the top
+    // the instant someone lands on the page. Only scroll in response to an
+    // actual navigation from here on.
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
     if (currentSeq === undefined) return;
-    const index = indexForSeq(items, currentSeq);
+    const index = indexForSeq(itemsRef.current, currentSeq);
     if (index >= 0) {
       virtuosoRef.current?.scrollToIndex({ index, align: "center", behavior: "smooth" });
     }
-    // Re-runs after the `key={items.length}` remount below (a new Virtuoso
-    // instance re-attaches the ref) — that's intentional: the cursor's index
-    // needs re-resolving against whatever set of rows is now visible.
-  }, [currentSeq, items]);
+    // Deliberately just `[currentSeq]`: toggling a filter changes `items`
+    // (and remounts Virtuoso below) without moving the cursor, and that must
+    // not trigger a scroll — the whole point of a filter chip is to reshape
+    // what's on screen without also hijacking where the user is looking.
+  }, [currentSeq]);
 
   if (items.length === 0) return <p className="muted">No events recorded for this session.</p>;
 
