@@ -12,7 +12,6 @@ import type { ExportOptions, ExportResult } from "./commands/export.js";
 import type { ReimportAllSummary, ReimportResult } from "./commands/reimport.js";
 import type { VerifyAllSummary, VerifyResult } from "./commands/verify.js";
 import type { CompareOptions } from "./commands/compare.js";
-import type { ReplayOptions } from "./commands/replay.js";
 import { CLI_VERSION } from "./version.js";
 
 // Command implementations are pulled in only when their command actually runs.
@@ -30,7 +29,6 @@ const lazy = {
   reimport: () => import("./commands/reimport.js"),
   verify: () => import("./commands/verify.js"),
   compare: () => import("./commands/compare.js"),
-  replay: () => import("./commands/replay.js"),
 };
 
 export interface ProgramDeps {
@@ -55,7 +53,6 @@ export interface ProgramDeps {
     idBOrPrefix: string,
     options?: CompareOptions,
   ) => Promise<UiHandle>;
-  startReplay?: (store: RetraceStore, idOrPrefix: string, options?: ReplayOptions) => Promise<UiHandle>;
   /** Absolute path to the embedded viewer build; passed by cli.ts (see server/app.ts). */
   viewerDir?: string;
   /** Absolute path to the embedded single-file export template; passed by cli.ts. */
@@ -330,30 +327,6 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       const store = createStore();
       const port = opts.port !== undefined ? Number(opts.port) : undefined;
       const handle = await startCompare(store, idA, idB, {
-        port,
-        openBrowser: opts.open,
-        viewerDir: deps.viewerDir,
-      });
-      const stop = async () => {
-        await handle.stop();
-        store.close();
-      };
-      process.once("SIGINT", stop);
-      process.once("SIGTERM", stop);
-      // As with `ui`, the server's own listening socket keeps the process
-      // alive until `stop` runs — nothing to await here.
-    });
-
-  program
-    .command("replay <sessionId>")
-    .description("Open the viewer directly at a session's replay view")
-    .option("--port <port>", "port to listen on (default: an OS-assigned free port)")
-    .option("--no-open", "don't launch the system browser")
-    .action(async (sessionId: string, opts: UiCommandOptions) => {
-      const startReplay = deps.startReplay ?? (await lazy.replay()).startReplay;
-      const store = createStore();
-      const port = opts.port !== undefined ? Number(opts.port) : undefined;
-      const handle = await startReplay(store, sessionId, {
         port,
         openBrowser: opts.open,
         viewerDir: deps.viewerDir,

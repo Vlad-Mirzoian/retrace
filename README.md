@@ -46,11 +46,7 @@ Opens a local server with a searchable, filterable timeline — prompts, reasoni
 node packages/cli/dist/cli.js export <sessionId>
 ```
 
-**Step through a session's replay** — playback controls, working-tree reconstruction, and failure jump-to:
-
-```bash
-node packages/cli/dist/cli.js replay <sessionId>
-```
+**Step through a session's replay** — playback controls, working-tree reconstruction, and failure jump-to: run `retrace ui` and open the session; the replay cursor is part of every session's detail view, no separate command needed.
 
 **Compare two runs of the same task** side by side, event-by-event and by final working tree:
 
@@ -69,13 +65,12 @@ node packages/cli/dist/cli.js compare <sessionIdA> <sessionIdB>
 | `retrace export <sessionId> [--json] [--output <path>]` | Export a session — a self-contained HTML file by default, or `--json` for the raw data. |
 | `retrace reimport [sessionId] [--all]` | Delete a session's stored data and re-import it from its source transcript (for recovering after a parser-bug fix). `--all` re-imports every session with a known source. |
 | `retrace verify [sessionId] [--all]` | Verify a session's tamper-evident hash chain, printing `✓ verified` or `✗ tampered at seq N`. Exits non-zero on any failure. |
-| `retrace replay <sessionId> [--port <port>] [--no-open]` | Open the viewer directly at a session's replay view — step-through playback, working-tree reconstruction, and failure localization. |
 | `retrace compare <sessionIdA> <sessionIdB> [--port <port>] [--no-open]` | Open the viewer's side-by-side comparison of two recorded sessions — aligned event-by-event, plus a diff of each run's final working tree. |
 | `retrace hook` | Internal: invoked by the hooks `retrace init` installs, reading a Claude Code hook payload from stdin. Not meant to be run by hand. |
 
 ## Replay & comparison
 
-Every recorded session doubles as a replayable record, not just a read-only log. `retrace ui` (or `retrace replay <sessionId>` to jump straight there) adds a **replay cursor** on top of the timeline:
+Every recorded session doubles as a replayable record, not just a read-only log. `retrace ui` adds a **replay cursor** on top of every session's timeline:
 
 - **Playback controls** — play/pause, step forward/back, scrub to any point, jump to the next/previous error or file change.
 - **Working tree** — reconstructs the content of every file touched up to the cursor (created / edited / deleted / no snapshot captured), with a diff against that file's previous recorded change.
