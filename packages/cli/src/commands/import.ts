@@ -92,7 +92,12 @@ export function importFile(
   }
 
   const fallbackTs = store.getSession(sessionId)?.endedAt ?? undefined;
-  const parsed = parseTranscriptLines(newLines, sessionId, fallbackTs);
+  // Lets the parser turn a Write tool call's full intended content — already
+  // sitting in the transcript — into a real CAS snapshot (an `afterRef` on
+  // the file_change it synthesizes), the same way the live hook does.
+  const parsed = parseTranscriptLines(newLines, sessionId, fallbackTs, (content) =>
+    store.objects.putSync(content),
+  );
 
   store.ensureSession({ ...parsed.session, id: sessionId, project });
   for (const draft of parsed.events) store.appendEvent(draft);

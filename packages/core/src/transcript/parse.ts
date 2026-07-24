@@ -1,4 +1,4 @@
-import type { RetraceEventDraft, SessionInfo } from "../schema.js";
+import type { FileChangePayload, RetraceEventDraft, SessionInfo } from "../schema.js";
 import { KNOWN_SERVICE_TYPES, type RawBlock, type RawRecord } from "./records.js";
 
 /** Common envelope fields shared by every draft produced from one record. */
@@ -60,6 +60,13 @@ function normalizeUser(record: RawRecord, base: DraftBase): RetraceEventDraft[] 
   return out;
 }
 
+/** Tool names whose calls also imply a file change, and the operation each represents. */
+const FILE_CHANGE_TOOLS: Record<string, FileChangePayload["operation"]> = {
+  Write: "write",
+  Edit: "edit",
+  NotebookEdit: "notebook_edit",
+};
+
 function normalizeAssistant(record: RawRecord, base: DraftBase): RetraceEventDraft[] {
   const message = record.message;
   const model = typeof message?.model === "string" ? message.model : undefined;
@@ -107,6 +114,10 @@ function normalizeAssistant(record: RawRecord, base: DraftBase): RetraceEventDra
           input: b.input,
         },
       });
+      // The file_change this call implies (if any) is synthesized in a
+      // second pass over the whole batch, once its tool_result is known —
+      // see synthesizeFileChanges. The result lives in a *later* transcript
+      // record than this tool_use block, so it isn't available yet here.
     } else {
       // Unknown assistant content block → meta, never dropped silently.
       out.push({
@@ -197,6 +208,7 @@ export function parseTranscriptLines(
   lines: string[],
   sessionId: string,
   fallbackTs?: string,
+  putObject?: (content: string) => string,
 ): ParsedTranscript {
   const events: RetraceEventDraft[] = [];
   const session: Partial<SessionInfo> = { id: sessionId };
@@ -238,7 +250,116 @@ export function parseTranscriptLines(
     for (const draft of pending) draft.ts = now;
   }
 
-  return { sessionId, session, events };
+  return { sessionId, session, events: synthesizeFileChanges(events, putObject) };
+}
+
+type ToolCallDraft = Extract<RetraceEventDraft, { kind: "tool_call" }>;
+
+/**
+ * Build the `file_change` an Edit/Write/NotebookEdit tool call implies, from
+ * fields already present in the transcript — mirroring what the live
+ * PreToolUse hook (`packages/cli/src/commands/hook.ts`) captures, minus
+ * `beforeRef`: that needs a disk read at the moment of the edit, which a
+ * historical transcript can never recover after the fact.
+ *
+ * `Write` carries its full intended content right in the call, so (given a
+ * `putObject`) it gets a real CAS snapshot as `afterRef` — same as the hook.
+ * `Edit` carries the hunk as literal `old_string`/`new_string`, kept as-is
+ * (no CAS needed, same as the hook — the hook never captures an Edit's
+ * `afterRef` either). `NotebookEdit` gets only its path: the hook doesn't
+ * capture notebook content either, so there's no parity to lose.
+ */
+function fileChangeForCall(
+  call: ToolCallDraft,
+  putObject?: (content: string) => string,
+): RetraceEventDraft | null {
+  const { toolName, toolUseId, input: rawInput } = call.payload;
+  const operation = FILE_CHANGE_TOOLS[toolName];
+  if (!operation) return null;
+
+  const input = (rawInput ?? {}) as Record<string, unknown>;
+  const path =
+    typeof input.file_path === "string"
+      ? input.file_path
+      : typeof input.notebook_path === "string"
+        ? input.notebook_path
+        : "";
+  if (!path) return null;
+
+  const payload: FileChangePayload = {
+    path,
+    operation,
+    toolName,
+    ...(toolUseId ? { toolUseId } : {}),
+  };
+
+  if (operation === "edit") {
+    if (typeof input.old_string === "string") payload.oldString = input.old_string;
+    if (typeof input.new_string === "string") payload.newString = input.new_string;
+  } else if (operation === "write" && typeof input.content === "string" && putObject) {
+    payload.afterRef = putObject(input.content);
+  }
+
+  const artifactRefs = payload.afterRef ? [payload.afterRef] : undefined;
+  return {
+    ts: call.ts,
+    sessionId: call.sessionId,
+    ...(call.sidechain ? { sidechain: call.sidechain } : {}),
+    kind: "file_change",
+    payload,
+    ...(artifactRefs ? { artifactRefs } : {}),
+  };
+}
+
+/**
+ * Second pass over a fully-parsed batch: for each Edit/Write/NotebookEdit
+ * tool call, inserts the file_change it implies right after its *result*
+ * (matched by toolUseId) — not right after the call itself. The call and its
+ * tool_use block are read from an *earlier* transcript record than the
+ * result, so this can't be done inline while walking records top to bottom
+ * (see `normalizeAssistant`).
+ *
+ * This positioning isn't cosmetic: `groupEvents`/`pairTools` (the viewer's
+ * timeline) fold a tool_call with its result into one row spanning
+ * `[call.seq, result.seq]`. Inserting the file_change *between* them would
+ * put its own single-seq row entirely *inside* that span — two rows both
+ * claiming the same seq as "theirs", which is exactly what made the replay
+ * cursor and the active-row highlight both light up and get stuck (see the
+ * bug this comment is fixing). After the result, both rows' ranges are
+ * disjoint, same as a live-hook-recorded session.
+ *
+ * A call with no result anywhere in this batch (still pending/interrupted)
+ * falls back to right after the call — a single-point range, so there's
+ * nothing for it to overlap with either way.
+ */
+function synthesizeFileChanges(
+  events: RetraceEventDraft[],
+  putObject?: (content: string) => string,
+): RetraceEventDraft[] {
+  const callsById = new Map<string, ToolCallDraft>();
+  const hasResult = new Set<string>();
+  for (const event of events) {
+    if (event.kind === "tool_call" && event.payload.toolUseId && !callsById.has(event.payload.toolUseId)) {
+      callsById.set(event.payload.toolUseId, event);
+    } else if (event.kind === "tool_result" && event.payload.toolUseId) {
+      hasResult.add(event.payload.toolUseId);
+    }
+  }
+
+  const out: RetraceEventDraft[] = [];
+  for (const event of events) {
+    out.push(event);
+
+    if (event.kind === "tool_call" && event.payload.toolUseId && !hasResult.has(event.payload.toolUseId)) {
+      const change = fileChangeForCall(event, putObject);
+      if (change) out.push(change);
+    } else if (event.kind === "tool_result" && event.payload.toolUseId) {
+      const call = callsById.get(event.payload.toolUseId);
+      const change = call && fileChangeForCall(call, putObject);
+      if (change) out.push(change);
+    }
+  }
+  return out;
 }
 
 /**
@@ -246,6 +367,10 @@ export function parseTranscriptLines(
  * metadata. Thin wrapper over {@link parseTranscriptLines} for one-shot
  * (non-incremental) parsing.
  */
-export function parseTranscript(text: string, sessionId: string): ParsedTranscript {
-  return parseTranscriptLines(splitTranscriptLines(text), sessionId);
+export function parseTranscript(
+  text: string,
+  sessionId: string,
+  putObject?: (content: string) => string,
+): ParsedTranscript {
+  return parseTranscriptLines(splitTranscriptLines(text), sessionId, undefined, putObject);
 }

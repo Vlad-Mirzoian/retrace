@@ -220,6 +220,175 @@ describe("normalizeRecord", () => {
   });
 });
 
+describe("parseTranscriptLines — file_change synthesis", () => {
+  // A tool_use lives in an assistant record; its result arrives in a *later*,
+  // separate user record — real transcript shape, and the reason synthesis
+  // can't happen inline while a single record is being normalized.
+  function toolUseLine(name: string, input: unknown, id = "toolu_1") {
+    return JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-07-15T00:00:00.000Z",
+      message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
+    });
+  }
+  function toolResultLine(toolUseId: string) {
+    return JSON.stringify({
+      type: "user",
+      timestamp: "2026-07-15T00:00:01.000Z",
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseId, content: "ok" }] },
+    });
+  }
+
+  it("inserts the file_change right after the tool_result — never between the call and its result", () => {
+    // That gap is exactly what made the tool row's [call, result] span and
+    // the file_change's own row overlap, sticking the replay cursor and
+    // double-highlighting both rows (the live bug this guards against).
+    const parsed = parseTranscriptLines(
+      [
+        toolUseLine("Edit", { file_path: "/repo/a.ts", old_string: "before", new_string: "after" }),
+        toolResultLine("toolu_1"),
+      ],
+      "s",
+    );
+
+    expect(kinds(parsed.events)).toEqual(["tool_call", "tool_result", "file_change"]);
+    const change = parsed.events[2];
+    if (change.kind !== "file_change") throw new Error("expected file_change");
+    expect(change.payload).toMatchObject({
+      path: "/repo/a.ts",
+      operation: "edit",
+      toolName: "Edit",
+      toolUseId: "toolu_1",
+      oldString: "before",
+      newString: "after",
+    });
+    expect(change.payload.afterRef).toBeUndefined();
+    expect(change.artifactRefs).toBeUndefined();
+  });
+
+  it("CAS-snapshots a Write's full content as afterRef when a putObject is supplied", () => {
+    const parsed = parseTranscriptLines(
+      [toolUseLine("Write", { file_path: "/repo/new.ts", content: "hello world" }), toolResultLine("toolu_1")],
+      "s",
+      undefined,
+      (content) => `hash:${content}`,
+    );
+
+    const change = parsed.events[2];
+    if (change.kind !== "file_change") throw new Error("expected file_change");
+    expect(change.payload).toMatchObject({
+      path: "/repo/new.ts",
+      operation: "write",
+      afterRef: "hash:hello world",
+    });
+    // Declared as an artifact so export bundling / future GC can find it
+    // without knowing file_change's payload shape (mirrors hook.ts).
+    expect(change.artifactRefs).toEqual(["hash:hello world"]);
+  });
+
+  it("degrades a Write to no snapshot when no putObject is supplied", () => {
+    const parsed = parseTranscriptLines(
+      [toolUseLine("Write", { file_path: "/repo/new.ts", content: "hello world" }), toolResultLine("toolu_1")],
+      "s",
+    );
+
+    const change = parsed.events[2];
+    if (change.kind !== "file_change") throw new Error("expected file_change");
+    expect(change.payload.afterRef).toBeUndefined();
+    expect(change.artifactRefs).toBeUndefined();
+  });
+
+  it("synthesizes only a path for NotebookEdit — the hook doesn't capture notebook content either", () => {
+    const parsed = parseTranscriptLines(
+      [
+        toolUseLine("NotebookEdit", { notebook_path: "/repo/nb.ipynb", new_source: "print(1)" }),
+        toolResultLine("toolu_1"),
+      ],
+      "s",
+    );
+
+    const change = parsed.events[2];
+    if (change.kind !== "file_change") throw new Error("expected file_change");
+    expect(change.payload).toEqual({
+      path: "/repo/nb.ipynb",
+      operation: "notebook_edit",
+      toolName: "NotebookEdit",
+      toolUseId: "toolu_1",
+    });
+  });
+
+  it("does not synthesize a file_change for a non-file tool", () => {
+    const parsed = parseTranscriptLines(
+      [toolUseLine("Bash", { command: "ls" }), toolResultLine("toolu_1")],
+      "s",
+    );
+    expect(kinds(parsed.events)).toEqual(["tool_call", "tool_result"]);
+  });
+
+  it("does not synthesize a file_change when the call carries no path", () => {
+    const parsed = parseTranscriptLines(
+      [toolUseLine("Edit", { old_string: "a", new_string: "b" }), toolResultLine("toolu_1")],
+      "s",
+    );
+    expect(kinds(parsed.events)).toEqual(["tool_call", "tool_result"]);
+  });
+
+  it("falls back to right after the call when no result arrives in this batch (interrupted/pending)", () => {
+    const parsed = parseTranscriptLines(
+      [toolUseLine("Edit", { file_path: "/repo/a.ts", old_string: "x", new_string: "y" })],
+      "s",
+    );
+    expect(kinds(parsed.events)).toEqual(["tool_call", "file_change"]);
+  });
+
+  it("matches each file_change to its own tool_result by toolUseId, across several tool uses in one round-trip", () => {
+    const parsed = parseTranscriptLines(
+      [
+        JSON.stringify({
+          type: "assistant",
+          timestamp: "2026-07-15T00:00:00.000Z",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "tool_use", id: "t1", name: "Read", input: { file_path: "/a.ts" } },
+              {
+                type: "tool_use",
+                id: "t2",
+                name: "Edit",
+                input: { file_path: "/a.ts", old_string: "x", new_string: "y" },
+              },
+            ],
+          },
+        }),
+        JSON.stringify({
+          type: "user",
+          timestamp: "2026-07-15T00:00:01.000Z",
+          message: {
+            role: "user",
+            content: [
+              { type: "tool_result", tool_use_id: "t1", content: "file body" },
+              { type: "tool_result", tool_use_id: "t2", content: "ok" },
+            ],
+          },
+        }),
+      ],
+      "s",
+    );
+
+    // Read produces no file_change; Edit's lands right after *its own*
+    // result, not the first one to arrive.
+    expect(kinds(parsed.events)).toEqual([
+      "tool_call",
+      "tool_call",
+      "tool_result",
+      "tool_result",
+      "file_change",
+    ]);
+    const change = parsed.events[4];
+    expect(change.kind === "file_change" && change.payload.toolUseId).toBe("t2");
+  });
+});
+
 describe("sessionInfoFromRecord", () => {
   it("pulls the title only from ai-title records", () => {
     expect(sessionInfoFromRecord({ type: "ai-title", aiTitle: "T" }).title).toBe("T");

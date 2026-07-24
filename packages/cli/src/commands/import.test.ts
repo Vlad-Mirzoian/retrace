@@ -35,6 +35,28 @@ const FOLLOWUP_LINE = record({
   message: { role: "assistant", content: [{ type: "text", text: "a follow-up" }] },
   timestamp: "2026-07-15T10:00:02.000Z",
 });
+const EDIT_WRITE_LINE = record({
+  type: "assistant",
+  isSidechain: false,
+  message: {
+    role: "assistant",
+    content: [
+      {
+        type: "tool_use",
+        id: "toolu_edit",
+        name: "Edit",
+        input: { file_path: "/repo/a.ts", old_string: "before", new_string: "after" },
+      },
+      {
+        type: "tool_use",
+        id: "toolu_write",
+        name: "Write",
+        input: { file_path: "/repo/b.ts", content: "brand new file" },
+      },
+    ],
+  },
+  timestamp: "2026-07-15T10:00:03.000Z",
+});
 
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "retrace-import-home-"));
@@ -128,6 +150,38 @@ describe("importFile", () => {
     expect(all[0].hash).toBe(firstEventHash);
     expect(all[0].seq).toBe(0);
     expect(all[1].seq).toBe(1);
+  });
+
+  it("synthesizes file_change events for Edit/Write tool calls, CAS-snapshotting Write's content", async () => {
+    const path = await writeTranscript("proj-a", "sess-x", [USER_LINE, EDIT_WRITE_LINE]);
+    importFile(store, path);
+
+    const events = store.readEvents("sess-x", 0, 10);
+    expect(events.map((e) => e.kind)).toEqual([
+      "user_prompt",
+      "tool_call",
+      "file_change",
+      "tool_call",
+      "file_change",
+    ]);
+
+    const edit = events[2];
+    if (edit.kind !== "file_change") throw new Error("expected file_change");
+    expect(edit.payload).toMatchObject({
+      path: "/repo/a.ts",
+      operation: "edit",
+      oldString: "before",
+      newString: "after",
+    });
+    expect(edit.payload.afterRef).toBeUndefined();
+
+    const write = events[4];
+    if (write.kind !== "file_change") throw new Error("expected file_change");
+    expect(write.payload.path).toBe("/repo/b.ts");
+    expect(write.payload.operation).toBe("write");
+    expect(write.payload.afterRef).toBeDefined();
+    // Round-trips through the real store — not just a stubbed hash.
+    expect(store.objects.getTextSync(write.payload.afterRef!)).toBe("brand new file");
   });
 
   it("mirrors imported lines into the session's raw.jsonl in order", async () => {
