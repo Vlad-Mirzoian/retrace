@@ -169,6 +169,37 @@ describe("exportSession — html", () => {
     expect(dataScriptMatch![0]).toContain("\\u003c/script>");
     expect(dataScriptMatch![0]).toContain("\\u003cscript>alert(1)");
   });
+
+  it("does not balloon the file when session text contains '$`' or other String.replace pattern sequences", async () => {
+    // `String.replace(searchString, replacementString)` treats a *string*
+    // replacement specially: "$`" splices in everything before the match,
+    // "$'" everything after, "$$" a literal "$". Recorded session text
+    // routinely contains these by pure coincidence (shell command
+    // substitution, LaTeX, prices) — real-world session data has tripped
+    // this before. Each "$`" here would insert another full copy of
+    // everything in the template before </head> if injectData ever
+    // regresses back to a string-form replace.
+    store.appendEvent({
+      ts: "2026-07-15T14:37:00.000Z",
+      sessionId: "sess-1",
+      kind: "assistant_text",
+      payload: {
+        text: "run `echo hi`$`whoami` then `ls`$`pwd`, and note the price is $$40",
+      },
+    });
+    store.ensureSession({ id: "sess-1" });
+    const output = join(outDir, "dollar.html");
+
+    exportSession(store, "sess-1", { format: "html", viewerExportDir, output });
+    const html = await readFile(output, "utf8");
+
+    // The template content that sits before </head> must appear exactly
+    // once — not once per "$`" in the injected data.
+    const preHeadOccurrences = html.split("<html><head><title>t</title>").length - 1;
+    expect(preHeadOccurrences).toBe(1);
+    expect(html).toContain("SPA");
+    expect(html).toContain("run `echo hi`");
+  });
 });
 
 describe("exportSession — bundling file snapshots", () => {

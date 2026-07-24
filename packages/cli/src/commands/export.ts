@@ -86,8 +86,16 @@ function buildExportedSession(store: RetraceStore, sessionId: string): ExportedS
 function injectData(template: string, data: ExportedSession): string {
   const json = JSON.stringify(data).replace(/</g, "\\u003c");
   const script = `<script>window.__RETRACE_EXPORT__ = ${json};</script>`;
+  // A *function* replacer, not a string one: `String.replace`'s string-form
+  // replacement specially interprets `$`-sequences (`$\``, `$'`, `$$`, ...) —
+  // and `script` is built from a real session's recorded text, which
+  // routinely contains literal `$` (shell snippets, LaTeX, prices). A
+  // string replacement would silently splice in extra copies of the
+  // template around the match for every such sequence, ballooning a
+  // ~360 KB template into a multi-megabyte file. A function's return value
+  // is inserted verbatim, with no pattern interpretation at all.
   return template.includes("</head>")
-    ? template.replace("</head>", `${script}\n</head>`)
+    ? template.replace("</head>", () => `${script}\n</head>`)
     : `${template}\n${script}`;
 }
 
