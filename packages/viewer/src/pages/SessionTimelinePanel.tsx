@@ -1,5 +1,7 @@
 import type { RetraceEvent } from "retrace-core/browser";
 import { useMemo, useState } from "react";
+import { useReplay } from "../replay/ReplayContext.js";
+import { usePlayback } from "../replay/usePlayback.js";
 import { ALL_FILTER_KINDS, countEvents, filterItems, type FilterKind } from "../timeline/filter.js";
 import { FilterBar } from "../timeline/FilterBar.js";
 import { groupEvents } from "../timeline/grouping.js";
@@ -8,7 +10,9 @@ import { Timeline } from "../timeline/Timeline.js";
 /**
  * Filter/search state plus the grouped, filtered timeline for one session's
  * events. Shared between the live SessionDetailPage (fetched over the API)
- * and the standalone export bundle (events embedded at export time).
+ * and the standalone export bundle (events embedded at export time). Both
+ * callers wrap this in a ReplayProvider — the replay cursor and playback
+ * live there, driven here against the *filtered* (currently visible) rows.
  */
 export function SessionTimelinePanel({ events }: { events: RetraceEvent[] }) {
   const [activeKinds, setActiveKinds] = useState<Set<FilterKind>>(
@@ -31,6 +35,9 @@ export function SessionTimelinePanel({ events }: { events: RetraceEvent[] }) {
     [groupedItems, activeKinds, search],
   );
 
+  const { currentSeq, setCurrentSeq } = useReplay();
+  usePlayback(filteredItems);
+
   return (
     <>
       <FilterBar
@@ -41,7 +48,7 @@ export function SessionTimelinePanel({ events }: { events: RetraceEvent[] }) {
         shown={countEvents(filteredItems)}
         total={events.length}
       />
-      <Timeline items={filteredItems} />
+      <Timeline items={filteredItems} currentSeq={currentSeq} onSelect={setCurrentSeq} />
     </>
   );
 }

@@ -87,3 +87,31 @@ export function itemKey(item: TimelineItem): number {
       return item.items.length > 0 ? itemKey(item.items[0]) : -1;
   }
 }
+
+/** The inclusive [start, end] seq range of underlying events a row represents. */
+export function itemRange(item: TimelineItem): [number, number] {
+  switch (item.kind) {
+    case "event":
+      return [item.event.seq, item.event.seq];
+    case "tool":
+      return [item.call.seq, item.result?.seq ?? item.call.seq];
+    case "subagent":
+      if (item.items.length === 0) return [-1, -1];
+      return [itemRange(item.items[0])[0], itemRange(item.items[item.items.length - 1])[1]];
+  }
+}
+
+/**
+ * Map a raw event `seq` (the replay cursor) to its row's index in a
+ * (filtered + grouped) item list. If `seq` doesn't fall inside any row's
+ * range — e.g. it belongs to an event the active filter hid — this snaps
+ * forward to the next visible row at or after it, or the last row if the
+ * cursor is past everything currently visible. The cursor itself always
+ * stays on the raw seq; this only resolves where to scroll/highlight for it.
+ */
+export function indexForSeq(items: TimelineItem[], seq: number): number {
+  for (let i = 0; i < items.length; i++) {
+    if (itemRange(items[i])[1] >= seq) return i;
+  }
+  return items.length > 0 ? items.length - 1 : -1;
+}

@@ -1,10 +1,12 @@
 import type { ChainVerification } from "retrace-core";
-import type { RetraceEvent, SessionRow } from "retrace-core/browser";
+import { buildNavIndex, type RetraceEvent, type SessionRow } from "retrace-core/browser";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { registerEmbeddedObjects, registerEmbeddedVerification } from "./api/client.js";
 import { SessionHeader } from "./pages/SessionHeader.js";
 import { SessionTimelinePanel } from "./pages/SessionTimelinePanel.js";
+import { ReplayControls } from "./replay/ReplayControls.js";
+import { ReplayProvider } from "./replay/ReplayContext.js";
 import "./theme.css";
 
 /** Embedded by `retrace export --html` (see cli/src/commands/export.ts). */
@@ -22,10 +24,16 @@ declare global {
 }
 
 function ExportedSession({ data }: { data: ExportedData }) {
+  const navIndex = buildNavIndex(data.events);
+  const maxSeq = data.events.length > 0 ? data.events[data.events.length - 1].seq : 0;
+
   return (
     <div className="page">
       <SessionHeader session={data.session} />
-      <SessionTimelinePanel events={data.events} />
+      <ReplayProvider maxSeq={maxSeq}>
+        <ReplayControls navIndex={navIndex} />
+        <SessionTimelinePanel events={data.events} />
+      </ReplayProvider>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 /** Text longer than this is hidden behind a toggle rather than shown inline. */
 const INLINE_LIMIT = 600;
@@ -7,12 +7,24 @@ export function Collapsible({
   label,
   children,
   defaultOpen = false,
+  forceOpen,
 }: {
   label: ReactNode;
   children: ReactNode;
   defaultOpen?: boolean;
+  /**
+   * When this becomes true, opens the section (e.g. the replay cursor
+   * entering a subagent's range) without overriding a manual close — it only
+   * ever pushes `open` to true, never back to false.
+   */
+  forceOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    if (forceOpen) setOpen(true);
+  }, [forceOpen]);
+
   return (
     <div className="collapsible">
       <button

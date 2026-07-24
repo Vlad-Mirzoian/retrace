@@ -1,6 +1,6 @@
 import type { RetraceEvent } from "retrace-core/browser";
 import { describe, expect, it } from "vitest";
-import { groupEvents, itemKey } from "./grouping.js";
+import { groupEvents, indexForSeq, itemKey, itemRange } from "./grouping.js";
 
 let seq = 0;
 
@@ -152,5 +152,93 @@ describe("itemKey", () => {
     ]);
     const keys = items.map(itemKey);
     expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
+describe("itemRange", () => {
+  it("is a single-seq range for a plain event", () => {
+    const p = prompt("a");
+    const items = groupEvents([p]);
+    expect(itemRange(items[0])).toEqual([p.seq, p.seq]);
+  });
+
+  it("spans call..result for a tool row", () => {
+    const call = toolCall("t1");
+    const result = toolResult("t1");
+    const items = groupEvents([call, result]);
+    expect(itemRange(items[0])).toEqual([call.seq, result.seq]);
+  });
+
+  it("falls back to the call's own seq when a tool has no result yet", () => {
+    const call = toolCall("t1");
+    const items = groupEvents([call]);
+    expect(itemRange(items[0])).toEqual([call.seq, call.seq]);
+  });
+
+  it("spans first..last inner event for a subagent group", () => {
+    const items = groupEvents([
+      prompt("main"),
+      prompt("sub start", true),
+      toolCall("s1", "Glob", true),
+      toolResult("s1", true),
+    ]);
+    const subagent = items[1];
+    expect(subagent.kind).toBe("subagent");
+    if (subagent.kind === "subagent") {
+      const first = subagent.items[0];
+      const last = subagent.items[subagent.items.length - 1];
+      const firstSeq = first.kind === "tool" ? first.call.seq : first.event.seq;
+      const lastSeq = last.kind === "tool" ? (last.result?.seq ?? last.call.seq) : last.event.seq;
+      expect(itemRange(subagent)).toEqual([firstSeq, lastSeq]);
+    }
+  });
+});
+
+describe("indexForSeq", () => {
+  it("returns -1 for an empty list", () => {
+    expect(indexForSeq([], 0)).toBe(-1);
+  });
+
+  it("finds the row containing an exact seq", () => {
+    const call = toolCall("t1");
+    const result = toolResult("t1");
+    const trailing = prompt("after");
+    const items = groupEvents([call, result, trailing]);
+
+    expect(indexForSeq(items, call.seq)).toBe(0);
+    expect(indexForSeq(items, result.seq)).toBe(0); // inside the tool row's span
+    expect(indexForSeq(items, trailing.seq)).toBe(1);
+  });
+
+  it("snaps forward to the next visible row when seq falls in a filtered-out gap", () => {
+    // Simulate a filter having hidden the middle event: items only has rows
+    // for the first and third original events, with a gap seq in between.
+    const first = prompt("a");
+    const hidden = prompt("hidden"); // only its seq matters, to land the cursor in the gap
+    const last = prompt("c");
+    const items = groupEvents([first, last]);
+
+    expect(indexForSeq(items, hidden.seq)).toBe(1);
+  });
+
+  it("snaps to the last row when seq is past everything currently visible", () => {
+    const items = groupEvents([prompt("a"), prompt("b")]);
+    const farSeq = itemKey(items[items.length - 1]) + 100;
+    expect(indexForSeq(items, farSeq)).toBe(items.length - 1);
+  });
+
+  it("resolves into a subagent group's index when seq is inside its range", () => {
+    const items = groupEvents([
+      prompt("main"),
+      prompt("sub", true),
+      prompt("more sub", true),
+      prompt("main again"),
+    ]);
+    const subagentSeq = items[1].kind === "subagent" ? items[1].items[1] : null;
+    expect(subagentSeq).not.toBeNull();
+    if (subagentSeq) {
+      const innerSeq = subagentSeq.kind === "tool" ? subagentSeq.call.seq : subagentSeq.event.seq;
+      expect(indexForSeq(items, innerSeq)).toBe(1);
+    }
   });
 });

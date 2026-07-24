@@ -1,7 +1,7 @@
 import type { RetraceEvent } from "retrace-core/browser";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { groupEvents } from "./grouping.js";
 import { Timeline } from "./Timeline.js";
 
@@ -69,5 +69,53 @@ describe("Timeline", () => {
 
     expect(screen.getByText("subagent work")).toBeInTheDocument();
     expect(screen.getByText("more subagent work")).toBeInTheDocument();
+  });
+
+  describe("replay cursor", () => {
+    it("highlights the row matching currentSeq and calls onSelect on click", async () => {
+      const first = prompt("first");
+      const second = prompt("second");
+      const items = groupEvents([first, second]);
+      const onSelect = vi.fn();
+
+      render(<Timeline items={items} currentSeq={second.seq} onSelect={onSelect} />);
+
+      const secondRow = screen.getByText("second").closest(".timeline-row");
+      const firstRow = screen.getByText("first").closest(".timeline-row");
+      expect(secondRow).toHaveClass("active");
+      expect(firstRow).not.toHaveClass("active");
+
+      await userEvent.click(screen.getByText("first"));
+      expect(onSelect).toHaveBeenCalledWith(first.seq);
+    });
+
+    it("marks a tool row active for any seq within its call..result span", () => {
+      const call = { ...base(), kind: "tool_call", payload: { toolName: "Bash", toolUseId: "t1", input: {} } } as RetraceEvent;
+      const result = { ...base(), kind: "tool_result", payload: { toolUseId: "t1", output: "ok" } } as RetraceEvent;
+      const items = groupEvents([call, result]);
+
+      render(<Timeline items={items} currentSeq={result.seq} onSelect={() => {}} />);
+
+      expect(screen.getByText("Bash").closest(".timeline-row")).toHaveClass("active");
+    });
+
+    it("auto-expands a subagent group when the cursor lands inside its range", () => {
+      const sub1 = prompt("sub work", true);
+      const sub2 = prompt("more sub work", true);
+      const items = groupEvents([prompt("main"), sub1, sub2]);
+
+      render(<Timeline items={items} currentSeq={sub2.seq} onSelect={() => {}} />);
+
+      // No click on the group toggle — it opened itself because the cursor
+      // (sub2's seq) falls inside this subagent's [sub1..sub2] range.
+      expect(screen.getByText("more sub work")).toBeInTheDocument();
+    });
+
+    it("does not highlight or expand anything when no cursor is provided", () => {
+      const items = groupEvents([prompt("main"), prompt("sub work", true)]);
+      render(<Timeline items={items} />);
+      expect(screen.queryByText("sub work")).not.toBeInTheDocument();
+      expect(document.querySelector(".timeline-row.active")).toBeNull();
+    });
   });
 });
