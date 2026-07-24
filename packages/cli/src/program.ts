@@ -11,6 +11,7 @@ import type { UiHandle, UiOptions } from "./commands/ui.js";
 import type { ExportOptions, ExportResult } from "./commands/export.js";
 import type { ReimportAllSummary, ReimportResult } from "./commands/reimport.js";
 import type { VerifyAllSummary, VerifyResult } from "./commands/verify.js";
+import type { CompareOptions } from "./commands/compare.js";
 import { CLI_VERSION } from "./version.js";
 
 // Command implementations are pulled in only when their command actually runs.
@@ -27,6 +28,7 @@ const lazy = {
   export: () => import("./commands/export.js"),
   reimport: () => import("./commands/reimport.js"),
   verify: () => import("./commands/verify.js"),
+  compare: () => import("./commands/compare.js"),
 };
 
 export interface ProgramDeps {
@@ -45,6 +47,12 @@ export interface ProgramDeps {
   reimportAll?: (store: RetraceStore, log?: (message: string) => void) => ReimportAllSummary;
   verifySession?: (store: RetraceStore, idOrPrefix: string) => VerifyResult;
   verifyAll?: (store: RetraceStore) => VerifyAllSummary;
+  startCompare?: (
+    store: RetraceStore,
+    idAOrPrefix: string,
+    idBOrPrefix: string,
+    options?: CompareOptions,
+  ) => Promise<UiHandle>;
   /** Absolute path to the embedded viewer build; passed by cli.ts (see server/app.ts). */
   viewerDir?: string;
   /** Absolute path to the embedded single-file export template; passed by cli.ts. */
@@ -307,6 +315,30 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       } finally {
         store.close();
       }
+    });
+
+  program
+    .command("compare <idA> <idB>")
+    .description("Open the viewer's side-by-side comparison of two recorded sessions")
+    .option("--port <port>", "port to listen on (default: an OS-assigned free port)")
+    .option("--no-open", "don't launch the system browser")
+    .action(async (idA: string, idB: string, opts: UiCommandOptions) => {
+      const startCompare = deps.startCompare ?? (await lazy.compare()).startCompare;
+      const store = createStore();
+      const port = opts.port !== undefined ? Number(opts.port) : undefined;
+      const handle = await startCompare(store, idA, idB, {
+        port,
+        openBrowser: opts.open,
+        viewerDir: deps.viewerDir,
+      });
+      const stop = async () => {
+        await handle.stop();
+        store.close();
+      };
+      process.once("SIGINT", stop);
+      process.once("SIGTERM", stop);
+      // As with `ui`, the server's own listening socket keeps the process
+      // alive until `stop` runs — nothing to await here.
     });
 
   return program;

@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import type { RetraceEvent } from "retrace-core/browser";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { AssistantCard, GenericCard, PromptCard, ThinkingCard } from "./cards.js";
 import { FileChangeCard } from "./FileChangeCard.js";
@@ -16,28 +17,39 @@ function contains(item: TimelineItem, seq: number): boolean {
   return seq >= start && seq <= end;
 }
 
+/**
+ * Render the card for a single raw event (a tool_call renders without its
+ * result — there's no pairing at this level). Shared by the main timeline's
+ * leaf rows (which handle pairing separately, above this) and the compare
+ * view, which shows two runs' raw event streams side by side with no pairing
+ * at all.
+ */
+export function renderEventCard(event: RetraceEvent): ReactNode {
+  switch (event.kind) {
+    case "user_prompt":
+      return <PromptCard event={event} />;
+    case "assistant_text":
+      return <AssistantCard event={event} />;
+    case "thinking":
+      return <ThinkingCard event={event} />;
+    case "file_change":
+      return <FileChangeCard event={event} />;
+    case "tool_call":
+      return <ToolCallCard call={event} />;
+    default:
+      return <GenericCard event={event} />;
+  }
+}
+
 function LeafRow({ item, currentSeq, onSelect }: RowProps & { item: LeafItem }) {
   const active = currentSeq !== undefined && contains(item, currentSeq);
   const handleClick = onSelect ? () => onSelect(itemKey(item)) : undefined;
-
-  const content = (() => {
-    if (item.kind === "tool") {
-      return <ToolCallCard call={item.call} result={item.result} />;
-    }
-    const { event } = item;
-    switch (event.kind) {
-      case "user_prompt":
-        return <PromptCard event={event} />;
-      case "assistant_text":
-        return <AssistantCard event={event} />;
-      case "thinking":
-        return <ThinkingCard event={event} />;
-      case "file_change":
-        return <FileChangeCard event={event} />;
-      default:
-        return <GenericCard event={event} />;
-    }
-  })();
+  const content =
+    item.kind === "tool" ? (
+      <ToolCallCard call={item.call} result={item.result} />
+    ) : (
+      renderEventCard(item.event)
+    );
 
   return (
     <div className={`timeline-row${active ? " active" : ""}`} onClick={handleClick}>

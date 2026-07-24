@@ -422,3 +422,50 @@ describe("createProgram — verify", () => {
     process.exitCode = 0;
   });
 });
+
+describe("createProgram — compare", () => {
+  it("starts the compare view and registers a SIGINT handler to stop it", async () => {
+    const stop = vi.fn().mockResolvedValue(undefined);
+    const handle: UiHandle = { url: "http://localhost:1234", port: 1234, stop };
+    const startCompare = vi.fn().mockResolvedValue(handle);
+
+    const program = createProgram({ createStore: () => store, startCompare });
+    await program.parseAsync(["node", "retrace", "compare", "sess-a", "sess-b"]);
+
+    expect(startCompare).toHaveBeenCalledTimes(1);
+    const [passedStore, idA, idB, options] = startCompare.mock.calls[0];
+    expect(passedStore).toBe(store);
+    expect(idA).toBe("sess-a");
+    expect(idB).toBe("sess-b");
+    expect(options.port).toBeUndefined();
+
+    process.emit("SIGINT");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("parses --port and passes it through as a number", async () => {
+    const handle: UiHandle = { url: "http://localhost:9", port: 9, stop: vi.fn() };
+    const startCompare = vi.fn().mockResolvedValue(handle);
+
+    const program = createProgram({ createStore: () => store, startCompare });
+    await program.parseAsync(["node", "retrace", "compare", "sess-a", "sess-b", "--port", "4321"]);
+
+    const [, , , options] = startCompare.mock.calls[0];
+    expect(options.port).toBe(4321);
+    process.emit("SIGINT");
+  });
+
+  it("passes openBrowser: false when --no-open is given", async () => {
+    const handle: UiHandle = { url: "http://localhost:9", port: 9, stop: vi.fn() };
+    const startCompare = vi.fn().mockResolvedValue(handle);
+
+    const program = createProgram({ createStore: () => store, startCompare });
+    await program.parseAsync(["node", "retrace", "compare", "sess-a", "sess-b", "--no-open"]);
+
+    const [, , , options] = startCompare.mock.calls[0];
+    expect(options.openBrowser).toBe(false);
+    process.emit("SIGINT");
+  });
+});

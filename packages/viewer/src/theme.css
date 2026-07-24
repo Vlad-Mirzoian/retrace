@@ -536,3 +536,53 @@ pre {
 .filter-count {
   margin-left: auto;
 }
+
+/* --- compare view --- */
+
+.compare-headers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.compare-headers h2 {
+  font-size: 15px;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compare-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 20px;
+}
+.compare-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.compare-cell {
+  min-width: 0;
+}
+.compare-cell-empty {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+.compare-row-changed .compare-cell:not(.compare-cell-empty) {
+  outline: 2px solid #d29922;
+  outline-offset: -1px;
+  border-radius: 6px;
+}
+.compare-row-only-a .compare-cell:not(.compare-cell-empty),
+.compare-row-only-b .compare-cell:not(.compare-cell-empty) {
+  outline: 2px solid var(--danger);
+  outline-offset: -1px;
+  border-radius: 6px;
+}
+
+.final-diff-file {
+  margin-bottom: 16px;
+}
