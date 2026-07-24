@@ -1,10 +1,16 @@
 import type { RetraceEvent } from "retrace-core/browser";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useReplay } from "../replay/ReplayContext.js";
 import { usePlayback } from "../replay/usePlayback.js";
-import { ALL_FILTER_KINDS, countEvents, filterItems, type FilterKind } from "../timeline/filter.js";
+import {
+  ALL_FILTER_KINDS,
+  countEvents,
+  filterItems,
+  itemFilterKind,
+  type FilterKind,
+} from "../timeline/filter.js";
 import { FilterBar } from "../timeline/FilterBar.js";
-import { groupEvents } from "../timeline/grouping.js";
+import { groupEvents, leafAt } from "../timeline/grouping.js";
 import { Timeline } from "../timeline/Timeline.js";
 
 /**
@@ -37,6 +43,23 @@ export function SessionTimelinePanel({ events }: { events: RetraceEvent[] }) {
 
   const { currentSeq, setCurrentSeq } = useReplay();
   usePlayback(filteredItems);
+
+  // A jump to a specific seq (a failure-panel click, a next-error/next-file
+  // button — anything that navigates by seq rather than by visible row) can
+  // land on an event the active kind filter is currently hiding. Without
+  // this, the cursor would move there while the row itself stays invisible —
+  // the side panel shows the right thing, but the timeline can't point at
+  // it. Reveal whatever kind the target actually is, leaving every other
+  // active chip alone. Deliberately keyed on `currentSeq` alone (not
+  // `activeKinds`): this must run because the cursor moved, not because the
+  // filter did — the functional updater form reads the latest activeKinds
+  // without needing it as a dependency.
+  useEffect(() => {
+    const leaf = leafAt(groupedItems, currentSeq);
+    if (!leaf) return;
+    const kind = itemFilterKind(leaf);
+    setActiveKinds((prev) => (prev.has(kind) ? prev : new Set(prev).add(kind)));
+  }, [currentSeq, groupedItems]);
 
   return (
     <>

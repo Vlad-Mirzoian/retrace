@@ -1,6 +1,6 @@
 import type { RetraceEvent } from "retrace-core/browser";
 import { describe, expect, it } from "vitest";
-import { groupEvents, indexForSeq, itemKey, itemRange } from "./grouping.js";
+import { groupEvents, indexForSeq, itemKey, itemRange, leafAt } from "./grouping.js";
 
 let seq = 0;
 
@@ -34,6 +34,14 @@ function toolResult(toolUseId: string, sidechain?: true, isError?: true): Retrac
     sidechain,
     kind: "tool_result",
     payload: { toolUseId, output: "ok", ...(isError ? { isError } : {}) },
+  } as RetraceEvent;
+}
+
+function fileChange(path: string, toolUseId?: string): RetraceEvent {
+  return {
+    ...base(),
+    kind: "file_change",
+    payload: { path, operation: "edit", toolUseId },
   } as RetraceEvent;
 }
 
@@ -92,6 +100,57 @@ describe("groupEvents — tool pairing", () => {
     ]);
     expect(items).toHaveLength(2);
     expect(items.every((i) => i.kind === "tool")).toBe(true);
+  });
+});
+
+describe("groupEvents — a file_change right after its tool's result", () => {
+  // The parser (packages/core/src/transcript/parse.ts) synthesizes an Edit's
+  // file_change *after* the tool_result, specifically so this never happens:
+  // if it landed *between* the call and result instead, the tool row's
+  // [call, result] span would swallow the file_change row's own single-seq
+  // range, and two rows would both claim the cursor at once — the replay
+  // cursor gets stuck there (indexForSeq keeps re-resolving to the tool row)
+  // and both rows show `.active` simultaneously. This is that scenario,
+  // fixed: call, result, *then* file_change, so the ranges are disjoint.
+  it("keeps the tool row's range and the file_change row's range disjoint", () => {
+    const call = toolCall("t1", "Edit");
+    const result = toolResult("t1");
+    const change = fileChange("/a.ts", "t1");
+    const items = groupEvents([call, result, change]);
+
+    expect(items).toHaveLength(2);
+    const [toolRow, fileRow] = items;
+    expect(itemRange(toolRow)).toEqual([call.seq, result.seq]);
+    expect(itemRange(fileRow)).toEqual([change.seq, change.seq]);
+    // No seq is claimed by both rows.
+    expect(change.seq).toBeGreaterThan(result.seq);
+  });
+
+  it("resolves the file_change's own seq to only the file row, never the tool row too", () => {
+    const call = toolCall("t1", "Edit");
+    const result = toolResult("t1");
+    const change = fileChange("/a.ts", "t1");
+    const items = groupEvents([call, result, change]);
+
+    expect(indexForSeq(items, change.seq)).toBe(1);
+    const leaf = leafAt(items, change.seq);
+    expect(leaf?.kind === "event" && leaf.event.kind).toBe("file_change");
+  });
+
+  it("lets playback advance past the file_change instead of stalling on it", () => {
+    // Regression for the exact hang: advancing seq-by-seq from the tool row
+    // must reach the file row next, not keep re-resolving back to the tool
+    // row (which is what an overlapping range caused).
+    const call = toolCall("t1", "Edit");
+    const result = toolResult("t1");
+    const change = fileChange("/a.ts", "t1");
+    const trailing = prompt("after");
+    const items = groupEvents([call, result, change, trailing]);
+
+    const toolIndex = indexForSeq(items, call.seq);
+    const fileIndex = indexForSeq(items, change.seq);
+    const trailingIndex = indexForSeq(items, trailing.seq);
+    expect([toolIndex, fileIndex, trailingIndex]).toEqual([0, 1, 2]);
   });
 });
 
@@ -240,5 +299,47 @@ describe("indexForSeq", () => {
       const innerSeq = subagentSeq.kind === "tool" ? subagentSeq.call.seq : subagentSeq.event.seq;
       expect(indexForSeq(items, innerSeq)).toBe(1);
     }
+  });
+});
+
+describe("leafAt", () => {
+  it("returns null for an empty list", () => {
+    expect(leafAt([], 0)).toBeNull();
+  });
+
+  it("finds a plain leaf by its exact seq", () => {
+    const first = prompt("a");
+    const second = prompt("b");
+    const items = groupEvents([first, second]);
+
+    const found = leafAt(items, second.seq);
+    expect(found?.kind === "event" && found.event.seq).toBe(second.seq);
+  });
+
+  it("finds a tool row for any seq within its call..result span", () => {
+    const call = toolCall("t1");
+    const result = toolResult("t1");
+    const items = groupEvents([call, result]);
+
+    const found = leafAt(items, result.seq);
+    expect(found?.kind === "tool" && found.call.payload.toolUseId).toBe("t1");
+  });
+
+  it("descends into a subagent group to find the inner leaf, unlike indexForSeq", () => {
+    const sub1 = prompt("sub work", true);
+    const sub2 = prompt("more sub work", true);
+    const items = groupEvents([prompt("main"), sub1, sub2]);
+
+    const found = leafAt(items, sub2.seq);
+    expect(found?.kind === "event" && found.event.seq).toBe(sub2.seq);
+  });
+
+  it("never snaps — returns null for a seq no row covers, instead of the nearest one", () => {
+    const first = prompt("a");
+    const hidden = prompt("hidden");
+    const last = prompt("c");
+    const items = groupEvents([first, last]); // "hidden"'s seq falls in the gap
+
+    expect(leafAt(items, hidden.seq)).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import type { RetraceEvent, SessionRow } from "retrace-core/browser";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -142,5 +142,51 @@ describe("SessionDetailPage", () => {
 
     expect(screen.queryByText("Read")).not.toBeInTheDocument();
     expect(screen.getByText("please fix the login bug")).toBeInTheDocument();
+  });
+
+  it("re-enables the Errors chip when jumping to a failure the filter is currently hiding", async () => {
+    const withFailure: RetraceEvent[] = [
+      ...events,
+      {
+        seq: 3,
+        ts: "2026-07-15T14:37:03.000Z",
+        sessionId: "sess-1",
+        prevHash: "h2",
+        hash: "h3",
+        kind: "tool_call",
+        payload: { toolName: "Bash", toolUseId: "t2", input: { command: "false" } },
+      },
+      {
+        seq: 4,
+        ts: "2026-07-15T14:37:04.000Z",
+        sessionId: "sess-1",
+        prevHash: "h3",
+        hash: "h4",
+        kind: "tool_result",
+        payload: { toolUseId: "t2", output: "command failed", isError: true },
+      },
+    ];
+    vi.mocked(client.getSession).mockResolvedValue(session);
+    vi.mocked(client.getAllEvents).mockResolvedValue(withFailure);
+
+    renderAtSession("sess-1");
+    await screen.findByText("please fix the login bug");
+
+    const errorsChip = screen.getByRole("button", { name: "Errors" });
+    await userEvent.click(errorsChip); // hide errors — reproduces the reported bug setup
+    expect(errorsChip).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByText("command failed")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /jump to first failure/i }));
+
+    // The chip comes back on its own, and the failing row is now actually
+    // visible in the *timeline* — not just referenced by the (unfiltered)
+    // causal trace in the side panel while the timeline scrolls toward a row
+    // that isn't there. Scoped to the main column: the same text also
+    // legitimately appears in the causal trace next to it.
+    expect(errorsChip).toHaveAttribute("aria-pressed", "true");
+    const mainColumn = document.querySelector(".session-column-main");
+    expect(mainColumn).not.toBeNull();
+    expect(within(mainColumn!).getByText("command failed")).toBeInTheDocument();
   });
 });

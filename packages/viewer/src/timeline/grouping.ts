@@ -115,3 +115,27 @@ export function indexForSeq(items: TimelineItem[], seq: number): number {
   }
   return items.length > 0 ? items.length - 1 : -1;
 }
+
+/**
+ * Find the leaf row whose range contains `seq`, descending into subagent
+ * groups — unlike {@link indexForSeq}, this never snaps to a neighboring row.
+ * Meant to be run over the *ungrouped-by-filter* item list (i.e. before
+ * `filterItems`), so a caller can ask "what row does this seq actually belong
+ * to, regardless of what's currently hidden" — e.g. to reveal it when a
+ * cursor jump (a failure-panel click, a next-error button) lands somewhere
+ * the active filter is hiding.
+ */
+export function leafAt(items: TimelineItem[], seq: number): LeafItem | null {
+  for (const item of items) {
+    if (item.kind === "subagent") {
+      for (const leaf of item.items) {
+        const [start, end] = itemRange(leaf);
+        if (seq >= start && seq <= end) return leaf;
+      }
+    } else {
+      const [start, end] = itemRange(item);
+      if (seq >= start && seq <= end) return item;
+    }
+  }
+  return null;
+}
