@@ -4,7 +4,7 @@
 
 Autonomous agents are writing code, touching production, and moving money — and when one of them does something expensive, the investigation usually turns into archaeology across scattered logs. Retrace captures everything Claude Code does in a session (prompts, reasoning, tool calls, file diffs) into a single local, replayable record, with a timeline viewer to make sense of it after the fact.
 
-This is an early MVP. Local-only, single-user, single-adapter (Claude Code). See [Roadmap](#roadmap) for what's next.
+This is an early MVP. Local-only, single-user, single-adapter (Claude Code). Recorded sessions are also **replayable**: step through a session event by event, reconstruct the working tree at any point, jump straight to failures, and diff two runs of the same task side by side. See [Roadmap](#roadmap) for what's next.
 
 ## Quickstart
 
@@ -46,6 +46,18 @@ Opens a local server with a searchable, filterable timeline — prompts, reasoni
 node packages/cli/dist/cli.js export <sessionId>
 ```
 
+**Step through a session's replay** — playback controls, working-tree reconstruction, and failure jump-to:
+
+```bash
+node packages/cli/dist/cli.js replay <sessionId>
+```
+
+**Compare two runs of the same task** side by side, event-by-event and by final working tree:
+
+```bash
+node packages/cli/dist/cli.js compare <sessionIdA> <sessionIdB>
+```
+
 ## Commands
 
 | Command | What it does |
@@ -55,7 +67,24 @@ node packages/cli/dist/cli.js export <sessionId>
 | `retrace init [--global]` | Install Retrace's hooks into Claude Code settings (project-local by default, `--global` for `~/.claude/settings.json`). Backs up the existing file and preserves any hooks already there. |
 | `retrace ui [--port <port>] [--no-open]` | Serve the timeline viewer. Picks a free port by default and opens your browser; `--no-open` for headless use. |
 | `retrace export <sessionId> [--json] [--output <path>]` | Export a session — a self-contained HTML file by default, or `--json` for the raw data. |
+| `retrace reimport [sessionId] [--all]` | Delete a session's stored data and re-import it from its source transcript (for recovering after a parser-bug fix). `--all` re-imports every session with a known source. |
+| `retrace verify [sessionId] [--all]` | Verify a session's tamper-evident hash chain, printing `✓ verified` or `✗ tampered at seq N`. Exits non-zero on any failure. |
+| `retrace replay <sessionId> [--port <port>] [--no-open]` | Open the viewer directly at a session's replay view — step-through playback, working-tree reconstruction, and failure localization. |
+| `retrace compare <sessionIdA> <sessionIdB> [--port <port>] [--no-open]` | Open the viewer's side-by-side comparison of two recorded sessions — aligned event-by-event, plus a diff of each run's final working tree. |
 | `retrace hook` | Internal: invoked by the hooks `retrace init` installs, reading a Claude Code hook payload from stdin. Not meant to be run by hand. |
+
+## Replay & comparison
+
+Every recorded session doubles as a replayable record, not just a read-only log. `retrace ui` (or `retrace replay <sessionId>` to jump straight there) adds a **replay cursor** on top of the timeline:
+
+- **Playback controls** — play/pause, step forward/back, scrub to any point, jump to the next/previous error or file change.
+- **Working tree** — reconstructs the content of every file touched up to the cursor (created / edited / deleted / no snapshot captured), with a diff against that file's previous recorded change.
+- **Failures** — every error and failed tool call, one click away, each with a causal trace (the tool call and file changes that produced it).
+- **Tamper-evidence badge** — the hash-chain verdict (`retrace verify`) surfaced right in the header.
+
+All of this runs entirely client-side over the already-recorded event stream (no re-invocation of Claude Code) and works identically in a standalone `retrace export --html` file, since the core reconstruction logic is pure and Node-free.
+
+`retrace compare <idA> <idB>` aligns two runs of the same task for side-by-side inspection: matched/changed/only-in-one-run rows down the middle, and a diff of what each run actually left in the working tree by the end — useful for "why did the second attempt behave differently".
 
 ## How it works
 
@@ -104,9 +133,9 @@ The dev server proxies `/api` to port 4317 by convention (see `packages/viewer/v
 
 ## Roadmap
 
-Shipped so far: recording (transcript import + live hooks), a local store with a tamper-evident hash chain, and a viewer with search/filtering and diffs.
+Shipped so far: recording (transcript import + live hooks), a local store with a tamper-evident hash chain (verifiable on demand via `retrace verify`), a viewer with search/filtering and diffs, and full recording-side replay — step-through playback, working-tree reconstruction, failure localization with causal traces, and side-by-side run comparison (`retrace compare`).
 
-Not yet built: publishing to npm, replay (forking a session from a chosen point and re-running with changes), an LLM-request proxy for full prompt/response capture, cloud storage for teams, anomaly detection, and signed exports for compliance use cases.
+Not yet built: publishing to npm, **forking** a session from a chosen point and re-running it with changes (true fork-and-rerun, distinct from the playback/reconstruction above — this would mean re-invoking Claude Code itself, which raises its own questions around model non-determinism), an LLM-request proxy for full prompt/response capture, cloud storage for teams, anomaly detection, and signed exports for compliance use cases.
 
 ## License
 

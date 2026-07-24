@@ -1,6 +1,6 @@
 {
   "name": "retrace-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Retrace — a flight recorder for AI coding agents. Records Claude Code sessions and serves a searchable timeline viewer.",
   "type": "module",
   "license": "MIT",

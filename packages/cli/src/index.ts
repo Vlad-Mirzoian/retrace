@@ -15,5 +15,6 @@ export * from "./commands/ui.js";
 export * from "./commands/export.js";
 export * from "./commands/verify.js";
 export * from "./commands/compare.js";
+export * from "./commands/replay.js";
 export * from "./server/app.js";
 export * from "./program.js";

@@ -1,6 +1,6 @@
 {
   "name": "retrace-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Core event schema, hash-chained store, and transcript parser for Retrace, a flight recorder for AI coding agents.",
   "type": "module",
   "license": "MIT",
