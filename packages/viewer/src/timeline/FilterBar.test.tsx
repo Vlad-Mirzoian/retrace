@@ -10,6 +10,7 @@ describe("FilterBar", () => {
       <FilterBar
         activeKinds={ALL_FILTER_KINDS}
         onToggle={() => {}}
+        onSetActiveKinds={() => {}}
         search=""
         onSearchChange={() => {}}
         shown={10}
@@ -28,6 +29,7 @@ describe("FilterBar", () => {
       <FilterBar
         activeKinds={active}
         onToggle={() => {}}
+        onSetActiveKinds={() => {}}
         search=""
         onSearchChange={() => {}}
         shown={1}
@@ -47,6 +49,7 @@ describe("FilterBar", () => {
       <FilterBar
         activeKinds={ALL_FILTER_KINDS}
         onToggle={onToggle}
+        onSetActiveKinds={() => {}}
         search=""
         onSearchChange={() => {}}
         shown={1}
@@ -63,6 +66,7 @@ describe("FilterBar", () => {
       <FilterBar
         activeKinds={ALL_FILTER_KINDS}
         onToggle={() => {}}
+        onSetActiveKinds={() => {}}
         search=""
         onSearchChange={onSearchChange}
         shown={1}
@@ -78,6 +82,7 @@ describe("FilterBar", () => {
       <FilterBar
         activeKinds={ALL_FILTER_KINDS}
         onToggle={() => {}}
+        onSetActiveKinds={() => {}}
         search=""
         onSearchChange={() => {}}
         shown={3}
@@ -85,5 +90,63 @@ describe("FilterBar", () => {
       />,
     );
     expect(screen.getByText("3 / 20 events")).toBeInTheDocument();
+  });
+
+  describe("Failures only", () => {
+    it("is not pressed when the active set isn't exactly {error}", () => {
+      render(
+        <FilterBar
+          activeKinds={ALL_FILTER_KINDS}
+          onToggle={() => {}}
+          onSetActiveKinds={() => {}}
+          search=""
+          onSearchChange={() => {}}
+          shown={1}
+          total={1}
+        />,
+      );
+      expect(screen.getByRole("button", { name: "Failures only" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+    });
+
+    it("isolates errors when clicked from the full set", async () => {
+      const onSetActiveKinds = vi.fn();
+      render(
+        <FilterBar
+          activeKinds={ALL_FILTER_KINDS}
+          onToggle={() => {}}
+          onSetActiveKinds={onSetActiveKinds}
+          search=""
+          onSearchChange={() => {}}
+          shown={1}
+          total={1}
+        />,
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Failures only" }));
+      expect(onSetActiveKinds).toHaveBeenCalledWith(new Set(["error"]));
+    });
+
+    it("is pressed and restores every kind when clicked again", async () => {
+      const onSetActiveKinds = vi.fn();
+      render(
+        <FilterBar
+          activeKinds={new Set(["error"])}
+          onToggle={() => {}}
+          onSetActiveKinds={onSetActiveKinds}
+          search=""
+          onSearchChange={() => {}}
+          shown={1}
+          total={1}
+        />,
+      );
+      expect(screen.getByRole("button", { name: "Failures only" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Failures only" }));
+      expect(onSetActiveKinds).toHaveBeenCalledWith(ALL_FILTER_KINDS);
+    });
   });
 });

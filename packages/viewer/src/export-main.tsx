@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { registerEmbeddedObjects, registerEmbeddedVerification } from "./api/client.js";
 import { SessionHeader } from "./pages/SessionHeader.js";
 import { SessionTimelinePanel } from "./pages/SessionTimelinePanel.js";
+import { FailurePanel } from "./replay/FailurePanel.js";
 import { ReplayControls } from "./replay/ReplayControls.js";
 import { ReplayProvider } from "./replay/ReplayContext.js";
 import { WorkingTreePanel } from "./replay/WorkingTreePanel.js";
@@ -38,6 +39,8 @@ function ExportedSession({ data }: { data: ExportedData }) {
             <SessionTimelinePanel events={data.events} />
           </div>
           <div className="session-column-side">
+            <h2 className="side-heading">Failures</h2>
+            <FailurePanel events={data.events} />
             <h2 className="side-heading">Working tree</h2>
             <WorkingTreePanel events={data.events} />
           </div>

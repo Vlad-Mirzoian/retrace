@@ -43,6 +43,7 @@ export function SessionTimelinePanel({ events }: { events: RetraceEvent[] }) {
       <FilterBar
         activeKinds={activeKinds}
         onToggle={toggleKind}
+        onSetActiveKinds={(kinds) => setActiveKinds(new Set(kinds))}
         search={search}
         onSearchChange={setSearch}
         shown={countEvents(filteredItems)}

@@ -439,6 +439,56 @@ pre {
   color: var(--accent);
 }
 
+/* --- failure panel --- */
+
+.failure-jump-first {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  color: var(--danger);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  padding: 4px 8px;
+}
+.failure-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.failure-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  padding: 4px 8px;
+  text-align: left;
+}
+.failure-item.active {
+  border-color: var(--accent);
+}
+.failure-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.causal-trace {
+  margin-top: 8px;
+}
+
 /* --- filter bar --- */
 
 .filter-bar {

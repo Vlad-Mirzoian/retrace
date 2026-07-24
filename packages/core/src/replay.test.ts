@@ -204,4 +204,18 @@ describe("causalChainFor", () => {
   it("returns an empty chain for events with no toolUseId linkage", () => {
     expect(causalChainFor(events, 3)).toEqual({ fileChanges: [] });
   });
+
+  it("resolves the trace when anchored at the failing tool_result itself — the FailurePanel's actual use case", () => {
+    const failing = sealEvents(
+      drafts([
+        { kind: "tool_call", payload: { toolName: "Bash", toolUseId: "t9", input: { command: "false" } } }, // 0
+        { kind: "tool_result", payload: { toolUseId: "t9", output: "boom", isError: true } }, // 1
+      ]),
+    );
+    const chain = causalChainFor(failing, 1);
+    expect(chain.toolCall?.seq).toBe(0);
+    expect(chain.toolResult?.seq).toBe(1);
+    expect(chain.toolResult?.payload.isError).toBe(true);
+    expect(chain.fileChanges).toEqual([]);
+  });
 });

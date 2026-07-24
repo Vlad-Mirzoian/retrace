@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { buildNavIndex } from "retrace-core/browser";
 import { getAllEvents, getSession } from "../api/client.js";
 import { useAsync } from "../hooks/useAsync.js";
+import { FailurePanel } from "../replay/FailurePanel.js";
 import { ReplayControls } from "../replay/ReplayControls.js";
 import { ReplayProvider } from "../replay/ReplayContext.js";
 import { WorkingTreePanel } from "../replay/WorkingTreePanel.js";
@@ -47,6 +48,8 @@ export function SessionDetailPage() {
               <SessionTimelinePanel events={events.data} />
             </div>
             <div className="session-column-side">
+              <h2 className="side-heading">Failures</h2>
+              <FailurePanel events={events.data} />
               <h2 className="side-heading">Working tree</h2>
               <WorkingTreePanel events={events.data} />
             </div>
