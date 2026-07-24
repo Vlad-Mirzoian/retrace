@@ -6,6 +6,7 @@ import {
   changesForPath,
   fileStateAt,
   filePathsTouched,
+  fileStatusesAt,
   nextOfKind,
 } from "./replay.js";
 import type { RetraceEventDraft } from "./schema.js";
@@ -79,6 +80,41 @@ describe("fileStateAt", () => {
     const state = fileStateAt(events, 1);
     expect(state.get("b.txt")?.originalRef).toBe("hash-b0");
     expect(state.get("a.txt")?.originalRef).toBeUndefined();
+  });
+});
+
+describe("fileStatusesAt", () => {
+  const events = sealEvents(
+    drafts([
+      { kind: "file_change", payload: { path: "a.txt", operation: "create", afterRef: "hash-a1" } }, // 0
+      { kind: "file_change", payload: { path: "b.txt", operation: "write", afterRef: "hash-b1" } }, // 1
+      { kind: "file_change", payload: { path: "a.txt", operation: "edit", oldString: "x", newString: "y" } }, // 2
+      { kind: "file_change", payload: { path: "b.txt", operation: "delete" } }, // 3
+    ]),
+  );
+
+  it("lists only paths touched at or before the cursor, sorted by path", () => {
+    expect(fileStatusesAt(events, 0).map((e) => e.path)).toEqual(["a.txt"]);
+    expect(fileStatusesAt(events, 1).map((e) => e.path)).toEqual(["a.txt", "b.txt"]);
+  });
+
+  it("marks a live path with its current ref and hadSnapshot", () => {
+    const entry = fileStatusesAt(events, 1).find((e) => e.path === "a.txt");
+    expect(entry).toMatchObject({ operation: "create", atSeq: 0, ref: "hash-a1", hadSnapshot: true, deleted: false });
+  });
+
+  it("degrades hadSnapshot to false for a change with no captured content (create->edit)", () => {
+    const entry = fileStatusesAt(events, 2).find((e) => e.path === "a.txt");
+    expect(entry).toMatchObject({ operation: "edit", atSeq: 2, ref: undefined, hadSnapshot: false, deleted: false });
+  });
+
+  it("still lists a deleted path — unlike fileStateAt — flagged as deleted", () => {
+    const statuses = fileStatusesAt(events, 3);
+    const b = statuses.find((e) => e.path === "b.txt");
+    expect(statuses.map((e) => e.path)).toContain("b.txt");
+    expect(b).toMatchObject({ operation: "delete", atSeq: 3, ref: undefined, hadSnapshot: false, deleted: true });
+    // a.txt is unaffected by b.txt's deletion.
+    expect(statuses.find((e) => e.path === "a.txt")?.deleted).toBe(false);
   });
 });
 

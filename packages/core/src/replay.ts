@@ -74,6 +74,45 @@ export function fileStateAt(
   return state;
 }
 
+/** A file's status at a replay cursor, for a "files touched" panel — unlike {@link fileStateAt}, includes paths that were later deleted. */
+export interface FileStatusEntry {
+  path: string;
+  /** The operation of the most recent change to this path at or before the cursor. */
+  operation: FileChangePayload["operation"];
+  /** seq of that change. */
+  atSeq: number;
+  /** Live content ref at the cursor; undefined once deleted or if no snapshot was captured. */
+  ref?: string;
+  hadSnapshot: boolean;
+  /** True when the most recent change to this path (at or before the cursor) was a delete. */
+  deleted: boolean;
+}
+
+/**
+ * Every path this session has touched by `cursor`, each with its status —
+ * including paths later deleted, which {@link fileStateAt} (working-tree-only)
+ * excludes since a deleted file isn't part of the tree. Sorted by path for a
+ * stable, predictable "files touched" list.
+ */
+export function fileStatusesAt(events: RetraceEvent[], cursor: number): FileStatusEntry[] {
+  const live = fileStateAt(events, cursor);
+  const lastChange = new Map<string, { operation: FileChangePayload["operation"]; atSeq: number }>();
+
+  for (const event of events) {
+    if (event.kind !== "file_change" || event.seq > cursor) continue;
+    lastChange.set(event.payload.path, { operation: event.payload.operation, atSeq: event.seq });
+  }
+
+  const entries: FileStatusEntry[] = [...lastChange.entries()].map(([path, { operation, atSeq }]) => {
+    const entry = live.get(path);
+    return entry
+      ? { path, operation: entry.operation, atSeq: entry.atSeq, ref: entry.ref, hadSnapshot: entry.hadSnapshot, deleted: false }
+      : { path, operation, atSeq, ref: undefined, hadSnapshot: false, deleted: true };
+  });
+
+  return entries.sort((a, b) => a.path.localeCompare(b.path));
+}
+
 /** Every distinct file path touched by a file_change in this session, in first-touched order. */
 export function filePathsTouched(events: RetraceEvent[]): string[] {
   const seen = new Set<string>();

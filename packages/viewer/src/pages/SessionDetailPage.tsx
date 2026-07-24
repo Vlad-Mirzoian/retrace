@@ -5,6 +5,7 @@ import { getAllEvents, getSession } from "../api/client.js";
 import { useAsync } from "../hooks/useAsync.js";
 import { ReplayControls } from "../replay/ReplayControls.js";
 import { ReplayProvider } from "../replay/ReplayContext.js";
+import { WorkingTreePanel } from "../replay/WorkingTreePanel.js";
 import { SessionHeader } from "./SessionHeader.js";
 import { SessionTimelinePanel } from "./SessionTimelinePanel.js";
 
@@ -41,7 +42,15 @@ export function SessionDetailPage() {
       {events.status === "ready" && navIndex && (
         <ReplayProvider maxSeq={maxSeq}>
           <ReplayControls navIndex={navIndex} />
-          <SessionTimelinePanel events={events.data} />
+          <div className="session-columns">
+            <div className="session-column-main">
+              <SessionTimelinePanel events={events.data} />
+            </div>
+            <div className="session-column-side">
+              <h2 className="side-heading">Working tree</h2>
+              <WorkingTreePanel events={events.data} />
+            </div>
+          </div>
         </ReplayProvider>
       )}
     </div>

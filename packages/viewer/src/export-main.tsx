@@ -7,6 +7,7 @@ import { SessionHeader } from "./pages/SessionHeader.js";
 import { SessionTimelinePanel } from "./pages/SessionTimelinePanel.js";
 import { ReplayControls } from "./replay/ReplayControls.js";
 import { ReplayProvider } from "./replay/ReplayContext.js";
+import { WorkingTreePanel } from "./replay/WorkingTreePanel.js";
 import "./theme.css";
 
 /** Embedded by `retrace export --html` (see cli/src/commands/export.ts). */
@@ -32,7 +33,15 @@ function ExportedSession({ data }: { data: ExportedData }) {
       <SessionHeader session={data.session} />
       <ReplayProvider maxSeq={maxSeq}>
         <ReplayControls navIndex={navIndex} />
-        <SessionTimelinePanel events={data.events} />
+        <div className="session-columns">
+          <div className="session-column-main">
+            <SessionTimelinePanel events={data.events} />
+          </div>
+          <div className="session-column-side">
+            <h2 className="side-heading">Working tree</h2>
+            <WorkingTreePanel events={data.events} />
+          </div>
+        </div>
       </ReplayProvider>
     </div>
   );
