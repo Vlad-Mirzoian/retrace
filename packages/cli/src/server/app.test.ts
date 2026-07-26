@@ -150,6 +150,58 @@ describe("GET /api/sessions/:id/verify", () => {
   });
 });
 
+describe("GET /api/sessions/:id/check", () => {
+  it("404s for an unknown session", async () => {
+    const app = createApp(store);
+    const res = await app.request("/api/sessions/nope/check");
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "session not found" });
+  });
+
+  it("returns a CheckReport for a clean session", async () => {
+    store.appendEvent({
+      ts: "2026-07-15T14:37:00.000Z",
+      sessionId: "sess-1",
+      kind: "user_prompt",
+      payload: { text: "hi" },
+    });
+    const app = createApp(store);
+    const res = await app.request("/api/sessions/sess-1/check");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessionId: string; findings: unknown[]; rulesRun: string[] };
+    expect(body.sessionId).toBe("sess-1");
+    expect(body.findings).toEqual([]);
+    expect(body.rulesRun.length).toBeGreaterThan(0);
+  });
+
+  it("finds a real finding when the session's events warrant one", async () => {
+    store.appendEvent({
+      ts: "2026-07-15T14:37:00.000Z",
+      sessionId: "sess-1",
+      kind: "file_change",
+      payload: { path: "/repo/a.ts", operation: "edit", oldString: "x", newString: "y" },
+    });
+    const app = createApp(store);
+    const res = await app.request("/api/sessions/sess-1/check");
+    const body = (await res.json()) as { findings: { ruleId: string }[] };
+    expect(body.findings.map((f) => f.ruleId)).toContain("edit-without-read");
+  });
+
+  it("mirrors --disable via ?disable=ruleA,ruleB", async () => {
+    store.appendEvent({
+      ts: "2026-07-15T14:37:00.000Z",
+      sessionId: "sess-1",
+      kind: "file_change",
+      payload: { path: "/repo/a.ts", operation: "edit", oldString: "x", newString: "y" },
+    });
+    const app = createApp(store);
+    const res = await app.request("/api/sessions/sess-1/check?disable=edit-without-read");
+    const body = (await res.json()) as { rulesRun: string[]; findings: unknown[] };
+    expect(body.rulesRun).not.toContain("edit-without-read");
+    expect(body.findings).toEqual([]);
+  });
+});
+
 describe("embedded viewer static serving", () => {
   let viewerDir: string;
 

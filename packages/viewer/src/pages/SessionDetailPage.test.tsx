@@ -144,6 +144,39 @@ describe("SessionDetailPage", () => {
     expect(screen.getByText("please fix the login bug")).toBeInTheDocument();
   });
 
+  it("shows the findings panel's empty state (naming the rule count) for a session with no findings", async () => {
+    vi.mocked(client.getSession).mockResolvedValue(session);
+    vi.mocked(client.getAllEvents).mockResolvedValue(events);
+
+    renderAtSession("sess-1");
+    await screen.findByText("please fix the login bug");
+
+    expect(screen.getByText(/no findings — \d+ rule\(s\) run\./i)).toBeInTheDocument();
+  });
+
+  it("shows real findings in the panel when the session's events warrant one", async () => {
+    const eventsWithBlindEdit: RetraceEvent[] = [
+      ...events,
+      {
+        seq: 3,
+        ts: "2026-07-15T14:37:03.000Z",
+        sessionId: "sess-1",
+        prevHash: "h2",
+        hash: "h3",
+        kind: "file_change",
+        payload: { path: "/repo/b.ts", operation: "edit", oldString: "x", newString: "y" },
+      },
+    ];
+    vi.mocked(client.getSession).mockResolvedValue(session);
+    vi.mocked(client.getAllEvents).mockResolvedValue(eventsWithBlindEdit);
+
+    renderAtSession("sess-1");
+    await screen.findByText("please fix the login bug");
+
+    expect(screen.getByText(/edited without being read/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no findings/i)).not.toBeInTheDocument();
+  });
+
   it("re-enables the Errors chip when jumping to a failure the filter is currently hiding", async () => {
     const withFailure: RetraceEvent[] = [
       ...events,
@@ -185,7 +218,7 @@ describe("SessionDetailPage", () => {
     // that isn't there. Scoped to the main column: the same text also
     // legitimately appears in the causal trace next to it.
     expect(errorsChip).toHaveAttribute("aria-pressed", "true");
-    const mainColumn = document.querySelector(".session-column-main");
+    const mainColumn = document.querySelector<HTMLElement>(".session-column-main");
     expect(mainColumn).not.toBeNull();
     expect(within(mainColumn!).getByText("command failed")).toBeInTheDocument();
   });

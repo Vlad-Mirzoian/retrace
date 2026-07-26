@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
-import { buildNavIndex } from "retrace-core/browser";
+import { buildNavIndex, runChecks } from "retrace-core/browser";
 import { getAllEvents, getSession } from "../api/client.js";
+import { FindingsPanel } from "../check/FindingsPanel.js";
 import { useAsync } from "../hooks/useAsync.js";
 import { FailurePanel } from "../replay/FailurePanel.js";
 import { ReplayControls } from "../replay/ReplayControls.js";
@@ -18,6 +19,10 @@ export function SessionDetailPage() {
   const navIndex = useMemo(
     () => (events.status === "ready" ? buildNavIndex(events.data) : null),
     [events],
+  );
+  const report = useMemo(
+    () => (events.status === "ready" ? runChecks(id, events.data) : null),
+    [id, events],
   );
   const maxSeq =
     events.status === "ready" && events.data.length > 0
@@ -48,6 +53,8 @@ export function SessionDetailPage() {
               <SessionTimelinePanel events={events.data} />
             </div>
             <div className="session-column-side">
+              <h2 className="side-heading">Findings</h2>
+              {report && <FindingsPanel report={report} events={events.data} />}
               <h2 className="side-heading">Failures</h2>
               <FailurePanel events={events.data} />
               <h2 className="side-heading">Working tree</h2>

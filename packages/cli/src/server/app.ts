@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { verifyChain, type RetraceStore } from "retrace-core";
+import { runChecks, verifyChain, type RetraceStore } from "retrace-core";
 import { Hono } from "hono";
 import { collectAllEvents } from "../events.js";
 
@@ -68,6 +68,21 @@ export function createApp(store: RetraceStore, options: CreateAppOptions = {}): 
     const id = c.req.param("id");
     if (!store.getSession(id)) return c.json({ error: "session not found" }, 404);
     return c.json(verifyChain(collectAllEvents(store, id)));
+  });
+
+  app.get("/api/sessions/:id/check", (c) => {
+    const id = c.req.param("id");
+    if (!store.getSession(id)) return c.json({ error: "session not found" }, 404);
+
+    const disableParam = c.req.query("disable");
+    const disabled = disableParam
+      ? disableParam
+          .split(",")
+          .map((ruleId) => ruleId.trim())
+          .filter(Boolean)
+      : undefined;
+
+    return c.json(runChecks(id, collectAllEvents(store, id), disabled ? { disabled } : undefined));
   });
 
   if (options.viewerDir && existsSync(options.viewerDir)) {

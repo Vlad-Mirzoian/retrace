@@ -496,6 +496,99 @@ pre {
   margin-top: 8px;
 }
 
+/* --- findings panel --- */
+
+.findings-group {
+  margin-bottom: 8px;
+}
+.findings-group-heading {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.findings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.finding-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  padding: 4px 8px;
+  text-align: left;
+}
+.finding-item.active {
+  border-color: var(--accent);
+}
+.finding-rule {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.finding-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Severity is paired with its word in the markup, not conveyed by colour
+   alone — these hues are a reinforcing cue, not the only signal. */
+.badge-severity-high {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.badge-severity-medium {
+  border-color: #d29922;
+  color: #d29922;
+}
+.badge-severity-low {
+  border-color: var(--text-muted);
+  color: var(--text-muted);
+}
+.subagent-tag {
+  border: 1px solid #a371f7;
+  border-radius: 10px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: #a371f7;
+}
+.finding-detail {
+  margin-top: 8px;
+}
+.findings-skipped {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.findings-skipped-heading {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.findings-skipped ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 /* --- filter bar --- */
 
 .filter-bar {

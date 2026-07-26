@@ -1,8 +1,9 @@
 import type { ChainVerification } from "retrace-core";
-import { buildNavIndex, type RetraceEvent, type SessionRow } from "retrace-core/browser";
+import { buildNavIndex, runChecks, type RetraceEvent, type SessionRow } from "retrace-core/browser";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { registerEmbeddedObjects, registerEmbeddedVerification } from "./api/client.js";
+import { FindingsPanel } from "./check/FindingsPanel.js";
 import { SessionHeader } from "./pages/SessionHeader.js";
 import { SessionTimelinePanel } from "./pages/SessionTimelinePanel.js";
 import { FailurePanel } from "./replay/FailurePanel.js";
@@ -28,6 +29,7 @@ declare global {
 function ExportedSession({ data }: { data: ExportedData }) {
   const navIndex = buildNavIndex(data.events);
   const maxSeq = data.events.length > 0 ? data.events[data.events.length - 1].seq : 0;
+  const report = runChecks(data.session.id, data.events);
 
   return (
     <div className="page">
@@ -39,6 +41,8 @@ function ExportedSession({ data }: { data: ExportedData }) {
             <SessionTimelinePanel events={data.events} />
           </div>
           <div className="session-column-side">
+            <h2 className="side-heading">Findings</h2>
+            <FindingsPanel report={report} events={data.events} />
             <h2 className="side-heading">Failures</h2>
             <FailurePanel events={data.events} />
             <h2 className="side-heading">Working tree</h2>
