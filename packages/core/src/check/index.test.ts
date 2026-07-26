@@ -24,8 +24,22 @@ function fixture(name: string): string {
 }
 
 describe("RULES", () => {
-  it("registers both rules", () => {
-    expect(RULES.map((r) => r.id)).toEqual(["edit-without-read", "unaddressed-error"]);
+  it("registers all five rules", () => {
+    expect(RULES.map((r) => r.id)).toEqual([
+      "edit-without-read",
+      "unaddressed-error",
+      "unverified-test-claim",
+      "claimed-change-missing",
+      "untracked-bash-mutation",
+    ]);
+  });
+
+  it("gives every claim-verification rule a low or medium default severity, never high", () => {
+    for (const rule of RULES) {
+      if (["unverified-test-claim", "claimed-change-missing", "untracked-bash-mutation"].includes(rule.id)) {
+        expect(rule.defaultSeverity).not.toBe("high");
+      }
+    }
   });
 });
 
@@ -42,8 +56,9 @@ describe("runChecks", () => {
     const report = runChecks("sess-1", events);
     expect(report.sessionId).toBe("sess-1");
     expect(report.eventCount).toBe(3);
-    expect(report.rulesRun).toEqual(["edit-without-read", "unaddressed-error"]);
+    expect(report.rulesRun).toEqual(RULES.map((r) => r.id));
     expect(report.rulesSkipped).toEqual([]);
+    // Only two of the five registered rules find anything in this tiny fixture.
     expect(report.findings.map((f) => f.ruleId)).toEqual(["edit-without-read", "unaddressed-error"]);
   });
 
@@ -54,7 +69,7 @@ describe("runChecks", () => {
 
   it("skips a disabled rule", () => {
     const report = runChecks("sess-1", events, { disabled: ["edit-without-read"] });
-    expect(report.rulesRun).toEqual(["unaddressed-error"]);
+    expect(report.rulesRun).toEqual(RULES.map((r) => r.id).filter((id) => id !== "edit-without-read"));
     expect(report.findings.map((f) => f.ruleId)).toEqual(["unaddressed-error"]);
   });
 
@@ -77,7 +92,7 @@ describe("runChecks", () => {
     };
     const report = runChecks("sess-1", events, {}, [throwingRule, ...RULES]);
     expect(report.rulesSkipped).toEqual([{ ruleId: "throws-always", reason: "boom" }]);
-    expect(report.rulesRun).toEqual(["edit-without-read", "unaddressed-error"]);
+    expect(report.rulesRun).toEqual(RULES.map((r) => r.id));
     expect(report.findings.map((f) => f.ruleId)).toEqual(["edit-without-read", "unaddressed-error"]);
   });
 });
@@ -116,6 +131,30 @@ describe("runChecks against canonical fixtures", () => {
         relatedSeqs: [7],
         path: undefined,
         toolUseId: "toolu_bash1",
+      },
+      {
+        ruleId: "claimed-change-missing",
+        severity: "low",
+        title: "src/utils/helpers.ts claimed changed, but no matching file_change was recorded",
+        detail: "I also updated src/utils/helpers.ts to add a null check.",
+        seq: 10,
+        path: "src/utils/helpers.ts",
+      },
+      {
+        ruleId: "unverified-test-claim",
+        severity: "medium",
+        title: "Claimed tests pass, but the last test run failed",
+        detail: "All tests pass now.",
+        seq: 10,
+        relatedSeqs: [5, 7],
+      },
+      {
+        ruleId: "untracked-bash-mutation",
+        severity: "medium",
+        title: "Bash command (rm) may have modified files outside Retrace's record",
+        detail: "rm -rf dist",
+        seq: 11,
+        toolUseId: "toolu_rm1",
       },
     ]);
   });

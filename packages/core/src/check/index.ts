@@ -2,12 +2,22 @@ import type { RetraceEvent } from "../schema.js";
 import type { CheckFinding, CheckOptions, CheckReport, CheckRule } from "./types.js";
 import { editWithoutReadRule } from "./rules/edit-without-read.js";
 import { unaddressedErrorRule } from "./rules/unaddressed-error.js";
+import { unverifiedTestClaimRule } from "./rules/unverified-test-claim.js";
+import { claimedChangeMissingRule } from "./rules/claimed-change-missing.js";
+import { untrackedBashMutationRule } from "./rules/untracked-bash-mutation.js";
 
 export * from "./types.js";
 export * from "./toolInput.js";
+export * from "./claims.js";
 
 /** Every registered rule, so `--list-rules` and the viewer can enumerate them without running anything. */
-export const RULES: CheckRule[] = [editWithoutReadRule, unaddressedErrorRule];
+export const RULES: CheckRule[] = [
+  editWithoutReadRule,
+  unaddressedErrorRule,
+  unverifiedTestClaimRule,
+  claimedChangeMissingRule,
+  untrackedBashMutationRule,
+];
 
 /**
  * Run the check engine over a sealed event stream. Each rule is isolated: a

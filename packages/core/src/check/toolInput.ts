@@ -23,6 +23,15 @@ export function bashCommand(input: unknown): string | undefined {
 }
 
 /**
+ * Tool names that execute a shell command via `input.command` — not just
+ * `Bash`. Claude Code also offers a `PowerShell` tool (the primary shell on
+ * Windows, where this project develops), and real sessions use it routinely;
+ * a rule that only recognizes `Bash` silently misses a large share of shell
+ * activity on this platform.
+ */
+export const SHELL_TOOL_NAMES = new Set(["Bash", "PowerShell"]);
+
+/**
  * Normalize a path for cross-comparison: unify separators, strip a leading
  * `./`, collapse repeated slashes, drop a trailing slash, and lowercase —
  * Windows paths are case-insensitive, and this project develops on Windows,
