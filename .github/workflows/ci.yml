@@ -27,3 +27,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test
+      # Packs both packages as `pnpm publish` would and smoke-tests the packed
+      # artifact end to end (tarball contents, a real `npm install` from the
+      # tarball files, the installed binary against a throwaway store) — the
+      # Windows leg is the one most likely to catch a path bug in
+      # copy-viewer-dist.mjs. `pnpm build` already ran above, so skip its own.
+      - run: pnpm verify:pack -- --skip-build

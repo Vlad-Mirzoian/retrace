@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  # Required for npm provenance (OIDC token exchange with the registry).
+  id-token: write
+
+jobs:
+  release:
+    # Tags can only be pushed by someone with write access to this repo, but
+    # this guard makes it explicit: this job must never run from a fork.
+    if: github.repository == 'Vlad-Mirzoian/retrace'
+    runs-on: ubuntu-latest
+    # Configure this environment in repo settings (Settings → Environments)
+    # with required reviewers to gate publishing behind manual approval.
+    # Referencing it here is harmless even if it isn't configured yet — with
+    # no protection rules set up, the job just runs without pausing.
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # node:sqlite (used by retrace-core's store) requires Node >= 22.5.
+          node-version: "22"
+          cache: pnpm
+          registry-url: "https://registry.npmjs.org"
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+      - run: pnpm verify:pack -- --skip-build
+
+      # Publish retrace-core, THEN retrace-cli — the order matters:
+      # retrace-cli declares a dependency on retrace-core at whatever concrete
+      # version `pnpm pack` rewrites "workspace:*" into, and that version must
+      # already resolve on the registry by the time retrace-cli is installed.
+      #
+      # Why `npm publish <tarball>` instead of `pnpm publish` here: npm
+      # provenance requires the publishing CLI to support it, and the pinned
+      # pnpm version (see packageManager in the root package.json) has no
+      # --provenance flag at all (`pnpm publish --help` lists none — verified
+      # directly, not assumed). Falling back to `npm publish` on the live
+      # workspace source would be unsafe on its own, though: npm does not
+      # rewrite "workspace:*" specifiers, so retrace-cli's dependency on
+      # retrace-core would publish literally as "workspace:*" — an
+      # uninstallable version (see RELEASING.md). The fix is to let `pnpm
+      # pack` do the rewriting first (it already ran above, inside
+      # verify:pack) and have `npm publish` upload that pre-built tarball
+      # directly — npm reads a tarball argument's own embedded package.json
+      # and never touches the live source tree's.
+      - name: Pack both packages for publishing
+        run: |
+          mkdir -p /tmp/release-tarballs
+          pnpm --filter retrace-core pack --pack-destination /tmp/release-tarballs
+          pnpm --filter retrace-cli pack --pack-destination /tmp/release-tarballs
+
+      - name: Publish retrace-core
+        run: npm publish /tmp/release-tarballs/retrace-core-*.tgz --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish retrace-cli
+        run: npm publish /tmp/release-tarballs/retrace-cli-*.tgz --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

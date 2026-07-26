@@ -10,7 +10,8 @@
   "packageManager": "pnpm@11.13.0",
   "scripts": {
     "build": "pnpm --filter retrace-core run build && pnpm --filter @retrace/viewer run build && pnpm --filter retrace-cli run build",
-    "test": "pnpm -r run test"
+    "test": "pnpm -r run test",
+    "verify:pack": "node scripts/verify-tarball.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
