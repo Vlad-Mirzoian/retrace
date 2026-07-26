@@ -3,9 +3,13 @@
   "private": true,
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vlad-Mirzoian/retrace.git"
+  },
   "packageManager": "pnpm@11.13.0",
   "scripts": {
-    "build": "pnpm -r run build",
+    "build": "pnpm --filter retrace-core run build && pnpm --filter @retrace/viewer run build && pnpm --filter retrace-cli run build",
     "test": "pnpm -r run test"
   },
   "devDependencies": {

@@ -38,10 +38,6 @@ importers:
       retrace-core:
         specifier: workspace:*
         version: link:../core
-    devDependencies:
-      '@retrace/viewer':
-        specifier: workspace:*
-        version: link:../viewer
 
   packages/core:
     dependencies:

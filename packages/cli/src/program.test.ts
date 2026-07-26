@@ -12,6 +12,7 @@ import type { ReimportAllSummary, ReimportResult } from "./commands/reimport.js"
 import type { VerifyAllSummary, VerifyResult } from "./commands/verify.js";
 import type { CheckAllSummary, CheckSessionResult } from "./commands/check.js";
 import { createProgram } from "./program.js";
+import { CLI_VERSION } from "./version.js";
 
 let home: string;
 let store: RetraceStore;
@@ -32,6 +33,13 @@ afterEach(async () => {
 function output(): string {
   return logSpy.mock.calls.map((call) => call.join(" ")).join("\n");
 }
+
+describe("createProgram — version", () => {
+  it("wires CLI_VERSION into commander's --version, matching package.json rather than a hardcoded string", async () => {
+    const program = createProgram({ createStore: () => store });
+    expect(program.version()).toBe(CLI_VERSION);
+  });
+});
 
 describe("createProgram — list", () => {
   it("prints a friendly message when the store has no sessions", async () => {

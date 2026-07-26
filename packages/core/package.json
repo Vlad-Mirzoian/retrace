@@ -13,6 +13,19 @@
   "engines": {
     "node": ">=22.5.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vlad-Mirzoian/retrace.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/Vlad-Mirzoian/retrace#readme",
+  "bugs": {
+    "url": "https://github.com/Vlad-Mirzoian/retrace/issues"
+  },
+  "author": "Ukra1n1anUnd3rd0g",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -30,7 +43,8 @@
   ],
   "scripts": {
     "build": "tsup",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "pnpm build && pnpm test"
   },
   "dependencies": {
     "diff": "^9.0.0",
