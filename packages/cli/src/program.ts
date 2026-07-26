@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { RetraceStore } from "retrace-core";
+import { RetraceStore, RULES, type CheckOptions, type CheckReport, type CheckRule, type Severity } from "retrace-core";
 import type {
   ImportOptions,
   ImportSummary,
@@ -11,6 +11,7 @@ import type { UiHandle, UiOptions } from "./commands/ui.js";
 import type { ExportOptions, ExportResult } from "./commands/export.js";
 import type { ReimportAllSummary, ReimportResult } from "./commands/reimport.js";
 import type { VerifyAllSummary, VerifyResult } from "./commands/verify.js";
+import type { CheckAllSummary, CheckSessionResult } from "./commands/check.js";
 import type { CompareOptions } from "./commands/compare.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -29,6 +30,7 @@ const lazy = {
   reimport: () => import("./commands/reimport.js"),
   verify: () => import("./commands/verify.js"),
   compare: () => import("./commands/compare.js"),
+  check: () => import("./commands/check.js"),
 };
 
 export interface ProgramDeps {
@@ -47,6 +49,16 @@ export interface ProgramDeps {
   reimportAll?: (store: RetraceStore, log?: (message: string) => void) => ReimportAllSummary;
   verifySession?: (store: RetraceStore, idOrPrefix: string) => VerifyResult;
   verifyAll?: (store: RetraceStore) => VerifyAllSummary;
+  checkSession?: (
+    store: RetraceStore,
+    idOrPrefix: string,
+    options?: CheckOptions,
+  ) => CheckSessionResult;
+  checkAll?: (
+    store: RetraceStore,
+    options?: CheckOptions,
+    failOn?: Severity | "never",
+  ) => CheckAllSummary;
   startCompare?: (
     store: RetraceStore,
     idAOrPrefix: string,
@@ -84,6 +96,76 @@ interface ReimportCommandOptions {
 
 interface VerifyCommandOptions {
   all?: boolean;
+}
+
+interface CheckCommandOptions {
+  all?: boolean;
+  json?: boolean;
+  failOn?: string;
+  disable?: string[];
+  listRules?: boolean;
+}
+
+const FAIL_ON_VALUES = ["high", "medium", "low", "never"] as const;
+const SEVERITY_RANK: Record<Severity, number> = { low: 1, medium: 2, high: 3 };
+
+/** Findings sorted for human display: worst severity first, then session order. */
+function sortFindingsForDisplay(findings: CheckReport["findings"]): CheckReport["findings"] {
+  return [...findings].sort(
+    (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || a.seq - b.seq,
+  );
+}
+
+function formatFindingLine(
+  finding: CheckReport["findings"][number],
+  severityWidth: number,
+  ruleWidth: number,
+): string {
+  const severity = finding.severity.padEnd(severityWidth);
+  const rule = finding.ruleId.padEnd(ruleWidth);
+  const seq = `seq ${String(finding.seq).padStart(4)}`;
+  const subagent = finding.sidechain ? " (subagent)" : "";
+  return `  ${severity}  ${rule}  ${seq}  ${finding.title}${subagent}`;
+}
+
+/**
+ * Human-readable rendering of one session's check report — the target shape
+ * from the module's Goal example. A clean session states the rule count
+ * (not just "no findings"), so "passed" reads distinctly from "nothing was
+ * actually checked". Rules that failed to run get their own `skipped:`
+ * section — a rule that didn't run is not a rule that passed.
+ */
+function formatCheckReport(result: CheckSessionResult): string {
+  const { sessionId, report } = result;
+  const lines: string[] = [];
+
+  if (report.findings.length === 0) {
+    lines.push(
+      `✓ ${sessionId} — no findings (${report.eventCount} event(s), ${report.rulesRun.length} rule(s) run)`,
+    );
+  } else {
+    const sorted = sortFindingsForDisplay(report.findings);
+    const severityWidth = Math.max(...sorted.map((f) => f.severity.length));
+    const ruleWidth = Math.max(...sorted.map((f) => f.ruleId.length));
+
+    lines.push(`✗ ${sessionId} — ${report.findings.length} finding(s)`, "");
+    for (const finding of sorted) lines.push(formatFindingLine(finding, severityWidth, ruleWidth));
+    lines.push("", "  Run `retrace ui` and open the session to inspect each finding in context.");
+  }
+
+  if (report.rulesSkipped.length > 0) {
+    lines.push("", "skipped:");
+    for (const skipped of report.rulesSkipped) lines.push(`  ${skipped.ruleId}: ${skipped.reason}`);
+  }
+
+  return lines.join("\n");
+}
+
+function formatRulesList(rules: CheckRule[]): string {
+  const idWidth = Math.max(...rules.map((r) => r.id.length));
+  return rules
+    .map((r) => `${r.id.padEnd(idWidth)}  ${r.defaultSeverity.padEnd(6)}  ${r.description}`)
+    .join("\n");
 }
 
 /** "✓ id: verified (N event(s))" or "✗ id: tampered at seq S — <reason>". */
@@ -312,6 +394,81 @@ export function createProgram(deps: ProgramDeps = {}): Command {
         const result = verifySession(store, sessionId);
         console.log(formatVerifyResult(result));
         if (!result.verification.ok) process.exitCode = 1;
+      } finally {
+        store.close();
+      }
+    });
+
+  program
+    .command("check [sessionId]")
+    .description("Run the check engine over a session's event stream")
+    .option("--all", "check every recorded session")
+    .option("--json", "emit the raw report(s) as JSON")
+    .option(
+      "--fail-on <severity>",
+      "exit non-zero when a finding at or above this severity exists (high|medium|low|never)",
+      "high",
+    )
+    .option("--disable <ruleId...>", "skip specific rules")
+    .option("--list-rules", "print every rule id, severity, and description, then exit")
+    .action(async (sessionId: string | undefined, opts: CheckCommandOptions) => {
+      if (opts.listRules) {
+        console.log(formatRulesList(RULES));
+        return;
+      }
+
+      const failOnRaw = opts.failOn ?? "high";
+      if (!(FAIL_ON_VALUES as readonly string[]).includes(failOnRaw)) {
+        console.error(
+          `Invalid --fail-on value "${failOnRaw}" — expected one of: ${FAIL_ON_VALUES.join(", ")}.`,
+        );
+        process.exitCode = 2;
+        return;
+      }
+      const failOn = failOnRaw as Severity | "never";
+
+      const mod = await lazy.check();
+      const checkSession = deps.checkSession ?? mod.checkSession;
+      const checkAll = deps.checkAll ?? mod.checkAll;
+      const checkOptions: CheckOptions = opts.disable ? { disabled: opts.disable } : {};
+
+      let store: RetraceStore;
+      try {
+        store = createStore();
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 2;
+        return;
+      }
+
+      try {
+        if (opts.all) {
+          const { results, failed } = checkAll(store, checkOptions, failOn);
+          if (opts.json) {
+            console.log(JSON.stringify(results.map((r) => r.report)));
+          } else {
+            console.log(results.map((r) => formatCheckReport(r)).join("\n\n"));
+          }
+          if (failed.length > 0) process.exitCode = 1;
+          return;
+        }
+
+        if (!sessionId) {
+          console.error("Provide a sessionId, or use --all to check every session.");
+          process.exitCode = 1;
+          return;
+        }
+
+        const result = checkSession(store, sessionId, checkOptions);
+        if (opts.json) {
+          console.log(JSON.stringify(result.report));
+        } else {
+          console.log(formatCheckReport(result));
+        }
+        if (mod.breachesThreshold(result.report, failOn)) process.exitCode = 1;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 2;
       } finally {
         store.close();
       }

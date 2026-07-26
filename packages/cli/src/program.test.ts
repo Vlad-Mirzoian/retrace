@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { RetraceStore } from "retrace-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImportSummary, WatchHandle } from "./commands/import.js";
@@ -9,6 +10,7 @@ import type { UiHandle } from "./commands/ui.js";
 import type { ExportResult } from "./commands/export.js";
 import type { ReimportAllSummary, ReimportResult } from "./commands/reimport.js";
 import type { VerifyAllSummary, VerifyResult } from "./commands/verify.js";
+import type { CheckAllSummary, CheckSessionResult } from "./commands/check.js";
 import { createProgram } from "./program.js";
 
 let home: string;
@@ -419,6 +421,234 @@ describe("createProgram — verify", () => {
     expect(output()).toMatch(/✓ sess-good: verified \(2 event\(s\)\)/);
     expect(output()).toMatch(/✗ sess-bad: tampered at seq 1 — seq is not contiguous/);
     expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
+  });
+});
+
+describe("createProgram — check", () => {
+  function report(findings: CheckSessionResult["report"]["findings"] = []): CheckSessionResult["report"] {
+    return {
+      sessionId: "sess-1",
+      eventCount: 10,
+      findings,
+      rulesRun: ["edit-without-read", "unaddressed-error"],
+      rulesSkipped: [],
+    };
+  }
+
+  it("prints the clean-session line and does not set an exit code", async () => {
+    const checkSession = vi.fn().mockReturnValue({ sessionId: "sess-1", report: report([]) });
+
+    const program = createProgram({ createStore: () => store, checkSession });
+    await program.parseAsync(["node", "retrace", "check", "sess-1"]);
+
+    expect(checkSession).toHaveBeenCalledTimes(1);
+    const [passedStore, idOrPrefix] = checkSession.mock.calls[0];
+    expect(passedStore).toBe(store);
+    expect(idOrPrefix).toBe("sess-1");
+    expect(output()).toMatch(/✓ sess-1 — no findings \(10 event\(s\), 2 rule\(s\) run\)/);
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it("prints one line per finding and sets exit code 1 when the default (high) threshold is breached", async () => {
+    const checkSession = vi.fn().mockReturnValue({
+      sessionId: "sess-1",
+      report: report([
+        { ruleId: "unaddressed-error", severity: "high", title: "Bash failed with no follow-up", seq: 214 },
+        { ruleId: "edit-without-read", severity: "medium", title: "src/auth.ts edited without being read", seq: 87 },
+      ]),
+    });
+
+    const program = createProgram({ createStore: () => store, checkSession });
+    await program.parseAsync(["node", "retrace", "check", "sess-1"]);
+
+    expect(output()).toMatch(/✗ sess-1 — 2 finding\(s\)/);
+    // Sorted worst-severity-first: high before medium.
+    expect(output().indexOf("high")).toBeLessThan(output().indexOf("medium"));
+    expect(output()).toMatch(/seq  214.*Bash failed with no follow-up/);
+    expect(output()).toMatch(/retrace ui/);
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
+  });
+
+  it("marks a sidechain finding with a (subagent) suffix", async () => {
+    const checkSession = vi.fn().mockReturnValue({
+      sessionId: "sess-1",
+      report: report([
+        { ruleId: "edit-without-read", severity: "medium", title: "a.ts edited blind", seq: 1, sidechain: true },
+      ]),
+    });
+
+    const program = createProgram({ createStore: () => store, checkSession });
+    await program.parseAsync(["node", "retrace", "check", "sess-1"]);
+
+    expect(output()).toMatch(/a\.ts edited blind \(subagent\)/);
+    process.exitCode = 0;
+  });
+
+  it("lists skipped rules under their own heading", async () => {
+    const checkSession = vi.fn().mockReturnValue({
+      sessionId: "sess-1",
+      report: {
+        ...report([]),
+        rulesSkipped: [{ ruleId: "flaky-rule", reason: "boom" }],
+      },
+    });
+
+    const program = createProgram({ createStore: () => store, checkSession });
+    await program.parseAsync(["node", "retrace", "check", "sess-1"]);
+
+    expect(output()).toMatch(/skipped:\s*\n\s*flaky-rule: boom/);
+  });
+
+  it("exits 0 with --fail-on never even when findings are present", async () => {
+    const checkSession = vi.fn().mockReturnValue({
+      sessionId: "sess-1",
+      report: report([{ ruleId: "unaddressed-error", severity: "high", title: "x", seq: 1 }]),
+    });
+
+    const program = createProgram({ createStore: () => store, checkSession });
+    await program.parseAsync(["node", "retrace", "check", "sess-1", "--fail-on", "never"]);
+
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it("rejects an invalid --fail-on value with exit code 2", async () => {
+    const checkSession = vi.fn();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram({ createStore: () => store, checkSession });
+    await program.parseAsync(["node", "retrace", "check", "sess-1", "--fail-on", "catastrophic"]);
+
+    expect(checkSession).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(2);
+    expect(errorSpy.mock.calls.join("\n")).toMatch(/invalid --fail-on/i);
+
+    errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
+
+  it("exits 2 with a clear message, not a crash, when the session id can't be resolved", async () => {
+    const checkSession = vi.fn().mockImplementation(() => {
+      throw new Error('"amb" matches 2 sessions: amb-1, amb-2');
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram({ createStore: () => store, checkSession });
+    await program.parseAsync(["node", "retrace", "check", "amb"]);
+
+    expect(process.exitCode).toBe(2);
+    expect(errorSpy.mock.calls.join("\n")).toMatch(/matches 2 sessions/);
+
+    errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
+
+  it("requires a sessionId when --all is not given", async () => {
+    const checkSession = vi.fn();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram({ createStore: () => store, checkSession });
+    await program.parseAsync(["node", "retrace", "check"]);
+
+    expect(checkSession).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+
+    errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
+
+  it("emits the raw report as parseable JSON and nothing else, with no exit code on a clean report", async () => {
+    const checkSession = vi.fn().mockReturnValue({ sessionId: "sess-1", report: report([]) });
+
+    const program = createProgram({ createStore: () => store, checkSession });
+    await program.parseAsync(["node", "retrace", "check", "sess-1", "--json"]);
+
+    const calls = logSpy.mock.calls;
+    expect(calls).toHaveLength(1);
+    const parsed = JSON.parse(calls[0][0] as string);
+    expect(parsed.findings).toEqual([]);
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it("checks every session with --all, printing all results and exiting 1 if any breaches the threshold", async () => {
+    const summary: CheckAllSummary = {
+      results: [
+        { sessionId: "sess-good", report: report([]) },
+        {
+          sessionId: "sess-bad",
+          report: report([{ ruleId: "unaddressed-error", severity: "high", title: "boom", seq: 5 }]),
+        },
+      ],
+      failed: [
+        {
+          sessionId: "sess-bad",
+          report: report([{ ruleId: "unaddressed-error", severity: "high", title: "boom", seq: 5 }]),
+        },
+      ],
+    };
+    const checkAll = vi.fn().mockReturnValue(summary);
+
+    const program = createProgram({ createStore: () => store, checkAll });
+    await program.parseAsync(["node", "retrace", "check", "--all"]);
+
+    expect(checkAll).toHaveBeenCalledTimes(1);
+    expect(output()).toMatch(/✓ sess-good — no findings/);
+    expect(output()).toMatch(/✗ sess-bad — 1 finding\(s\)/);
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
+  });
+
+  it("passes --disable through as the disabled rule list", async () => {
+    const checkSession = vi.fn().mockReturnValue({ sessionId: "sess-1", report: report([]) });
+
+    const program = createProgram({ createStore: () => store, checkSession });
+    await program.parseAsync([
+      "node",
+      "retrace",
+      "check",
+      "sess-1",
+      "--disable",
+      "edit-without-read",
+      "unaddressed-error",
+    ]);
+
+    const [, , options] = checkSession.mock.calls[0];
+    expect(options.disabled).toEqual(["edit-without-read", "unaddressed-error"]);
+  });
+
+  it("lists every registered rule with --list-rules and needs no store or session", async () => {
+    const checkSession = vi.fn();
+    const checkAll = vi.fn();
+
+    const program = createProgram({ createStore: () => store, checkSession, checkAll });
+    await program.parseAsync(["node", "retrace", "check", "--list-rules"]);
+
+    expect(checkSession).not.toHaveBeenCalled();
+    expect(checkAll).not.toHaveBeenCalled();
+    expect(output()).toMatch(/edit-without-read\s+medium/);
+    expect(output()).toMatch(/unaddressed-error\s+high/);
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it("end-to-end against the real flagged-session fixture: no injected deps, real rules, real exit code", async () => {
+    const { importFile } = await import("./commands/import.js");
+    const path = fileURLToPath(new URL("../../core/fixtures/flagged-session.jsonl", import.meta.url));
+    const imported = importFile(store, path);
+
+    // No checkSession/checkAll injected — this exercises the real lazily-loaded implementation.
+    const program = createProgram({ createStore: () => store });
+    await program.parseAsync(["node", "retrace", "check", imported.sessionId, "--fail-on", "medium"]);
+
+    expect(output()).toMatch(new RegExp(`✗ ${imported.sessionId} — 5 finding\\(s\\)`));
+    expect(output()).toMatch(/edit-without-read/);
+    expect(output()).toMatch(/unaddressed-error/);
+    expect(output()).toMatch(/unverified-test-claim/);
+    expect(output()).toMatch(/claimed-change-missing/);
+    expect(output()).toMatch(/untracked-bash-mutation/);
+    expect(process.exitCode).toBe(1);
+
     process.exitCode = 0;
   });
 });
