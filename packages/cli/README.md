@@ -1,11 +1,12 @@
 # retrace-cli
 
-**A flight recorder for AI coding agents.**
+**Checks whether Claude Code did what it said it did — and records everything it did to prove it.**
 
-The `retrace` command: records everything Claude Code does in a session (prompts, reasoning, tool calls,
-file diffs) into a single local, replayable record, with a timeline viewer, a check engine that flags
-things like edits to never-read files or unverified test claims, and a comparison view for two runs of
-the same task.
+The `retrace` command: records every prompt, tool call and file change from a Claude Code session
+into a single local record, then checks that record against the agent's claims — files edited
+without ever being read, tool failures nothing responded to, changes made by shell commands that
+nothing is tracking. Also includes a timeline viewer, full recording-side replay, and a
+side-by-side comparison view for two runs of the same task.
 
 This package embeds the [Retrace viewer](https://github.com/Vlad-Mirzoian/retrace/tree/main/packages/viewer)
 and depends on [`retrace-core`](https://www.npmjs.com/package/retrace-core), the library half. See the
@@ -38,14 +39,27 @@ This adds hooks to `.claude/settings.json`, merging in alongside anything alread
 Everything below this point is optional — `ui` and `init` cover the common path. `npm install -g
 retrace-cli` gets you the plain `retrace` command instead of `npx retrace-cli` for everything that follows.
 
-**Check a session for things worth a second look** (unaddressed errors, edits to never-read files,
-unverified test claims, and more):
+**Check a session against what the agent claimed:**
 
 ```bash
 npx retrace-cli check <sessionId>
 ```
 
-Exits non-zero above the configured severity threshold, so it also works as a CI gate.
+Here's real output from a session on this machine, not a made-up example:
+
+```
+$ retrace check 36192c50
+✗ 36192c50-75f6-4b3e-a3d5-64e65930d224 — 4 finding(s)
+
+  medium  untracked-bash-mutation  seq    3  Bash command (output redirection (> / >>)) may have modified files outside Retrace's record
+  medium  untracked-bash-mutation  seq  140  Bash command (cp) may have modified files outside Retrace's record
+  medium  untracked-bash-mutation  seq  249  Bash command (git checkout/reset/apply/revert) may have modified files outside Retrace's record
+  medium  edit-without-read        seq  255  D:\Projects\Retrace\retrace\packages\viewer\src\theme.css edited without being read
+
+  Run `retrace ui` and open the session to inspect each finding in context.
+```
+
+Exits non-zero above the configured severity threshold (default `high`), so it also works as a CI gate.
 
 **Send a session to someone else** as one self-contained file (no server needed to view it):
 
@@ -58,6 +72,10 @@ npx retrace-cli export <sessionId>
 ```bash
 npx retrace-cli compare <sessionIdA> <sessionIdB>
 ```
+
+Every event is also hash-chained, so accidental or casual tampering with the local store is
+detectable via `retrace verify` — not a defense against someone who controls the machine the store
+lives on, just against drift and mistakes.
 
 ## Commands
 

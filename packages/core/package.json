@@ -1,14 +1,18 @@
 {
   "name": "retrace-core",
-  "version": "0.2.0",
-  "description": "Core event schema, hash-chained store, and transcript parser for Retrace, a flight recorder for AI coding agents.",
+  "version": "0.3.0",
+  "description": "Core event schema, hash-chained store, transcript parser, and check engine for Retrace — verifies whether a Claude Code session did what it claimed.",
   "type": "module",
   "license": "MIT",
   "keywords": [
     "retrace",
     "claude-code",
     "ai-agent",
-    "observability"
+    "observability",
+    "code-review",
+    "audit",
+    "verification",
+    "agent"
   ],
   "engines": {
     "node": ">=22.5.0"

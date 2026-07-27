@@ -1,7 +1,7 @@
 # retrace-core
 
-The library half of [Retrace](https://github.com/Vlad-Mirzoian/retrace), a flight recorder for AI
-coding agents. This package has no CLI or UI of its own — for that, see
+The library half of [Retrace](https://github.com/Vlad-Mirzoian/retrace), which checks whether
+Claude Code did what it said it did. This package has no CLI or UI of its own — for that, see
 [`retrace-cli`](https://www.npmjs.com/package/retrace-cli), which depends on it.
 
 It provides:
