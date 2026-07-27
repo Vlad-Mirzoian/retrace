@@ -80,9 +80,16 @@ interface InitCommandOptions {
   global?: boolean;
 }
 
-interface UiCommandOptions {
+interface PortAndOpenOptions {
   port?: string;
   open?: boolean;
+}
+
+// The `--no-import` auto-import suppression is `ui`-only, per the module 03
+// plan ("do not add this to any other command") — `compare` keeps the
+// smaller PortAndOpenOptions shape so that constraint is visible in the types.
+interface UiCommandOptions extends PortAndOpenOptions {
+  import?: boolean;
 }
 
 interface ExportCommandOptions {
@@ -277,6 +284,7 @@ export function createProgram(deps: ProgramDeps = {}): Command {
     .description("Serve the Retrace session viewer")
     .option("--port <port>", "port to listen on (default: an OS-assigned free port)")
     .option("--no-open", "don't launch the system browser")
+    .option("--no-import", "don't auto-import from ~/.claude/projects when the store is empty")
     .action(async (opts: UiCommandOptions) => {
       const startUi = deps.startUi ?? (await lazy.ui()).startUi;
       const store = createStore();
@@ -284,6 +292,7 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       const handle = await startUi(store, {
         port,
         openBrowser: opts.open,
+        autoImport: opts.import,
         viewerDir: deps.viewerDir,
       });
       const stop = async () => {
@@ -479,7 +488,7 @@ export function createProgram(deps: ProgramDeps = {}): Command {
     .description("Open the viewer's side-by-side comparison of two recorded sessions")
     .option("--port <port>", "port to listen on (default: an OS-assigned free port)")
     .option("--no-open", "don't launch the system browser")
-    .action(async (idA: string, idB: string, opts: UiCommandOptions) => {
+    .action(async (idA: string, idB: string, opts: PortAndOpenOptions) => {
       const startCompare = deps.startCompare ?? (await lazy.compare()).startCompare;
       const store = createStore();
       const port = opts.port !== undefined ? Number(opts.port) : undefined;

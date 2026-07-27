@@ -1,6 +1,19 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createProgram } from "./program.js";
+import { checkNodeVersion } from "./preflight.js";
+
+// Runs before `createProgram` is even imported below: `program.ts` pulls in
+// retrace-core (for RetraceStore), whose store uses node:sqlite — on too old
+// a Node, that import itself throws a module-resolution error deep enough to
+// read as "this tool is broken" rather than "upgrade Node". Checking first
+// makes the real failure legible instead.
+const nodeCheck = checkNodeVersion(process.version);
+if (!nodeCheck.ok) {
+  console.error(nodeCheck.message);
+  process.exit(1);
+}
+
+const { createProgram } = await import("./program.js");
 
 // tsup's `entry` config guarantees this file is emitted as `dist/cli.js`
 // (unlike internal modules, which may land in an arbitrarily-named shared

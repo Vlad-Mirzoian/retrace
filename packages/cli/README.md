@@ -17,9 +17,14 @@ notes.
 ## Quickstart
 
 ```bash
-npx retrace-cli import   # or: npm install -g retrace-cli, then use `retrace` directly
-npx retrace-cli list
+npx retrace-cli ui
 ```
+
+One command, no prior setup: if you have no sessions recorded yet, it imports your existing Claude Code
+history from `~/.claude/projects` and opens the timeline — a searchable, filterable view of prompts,
+reasoning, tool calls paired with their results, file diffs, collapsed subagent branches, and a findings
+panel for anything the check engine flagged. (Nothing there yet? It says so and still opens, rather than
+serving a silent blank page. `--no-import` skips the auto-import if you'd rather run it yourself.)
 
 **Capture new sessions as they happen** (file snapshots + session boundaries via Claude Code hooks — run
 from the project you want to record):
@@ -30,15 +35,8 @@ npx retrace-cli init
 
 This adds hooks to `.claude/settings.json`, merging in alongside anything already there.
 
-**Browse a session's timeline:**
-
-```bash
-npx retrace-cli ui
-```
-
-Opens a local server with a searchable, filterable timeline — prompts, reasoning, tool calls paired with
-their results, file diffs, collapsed subagent branches, and a findings panel for anything the check
-engine flagged.
+Everything below this point is optional — `ui` and `init` cover the common path. `npm install -g
+retrace-cli` gets you the plain `retrace` command instead of `npx retrace-cli` for everything that follows.
 
 **Check a session for things worth a second look** (unaddressed errors, edits to never-read files,
 unverified test claims, and more):
@@ -68,7 +66,7 @@ npx retrace-cli compare <sessionIdA> <sessionIdB>
 | `retrace import [--watch] [--projects-dir <dir>]` | Import Claude Code transcripts from `~/.claude/projects` (or a custom dir) into the local store. Incremental — re-running only picks up new lines. `--watch` keeps importing as sessions change. |
 | `retrace list` | List recorded sessions, most recent first. |
 | `retrace init [--global]` | Install Retrace's hooks into Claude Code settings (project-local by default, `--global` for `~/.claude/settings.json`). Backs up the existing file and preserves any hooks already there. |
-| `retrace ui [--port <port>] [--no-open]` | Serve the timeline viewer. Picks a free port by default and opens your browser; `--no-open` for headless use. |
+| `retrace ui [--port <port>] [--no-open] [--no-import]` | Serve the timeline viewer. Picks a free port by default and opens your browser; `--no-open` for headless use. If the store has no sessions yet, imports from `~/.claude/projects` first (prints what it's doing, or that the directory doesn't exist) — suppress with `--no-import`. |
 | `retrace check [sessionId] [--all] [--json] [--fail-on <severity>] [--disable <ruleId...>] [--list-rules]` | Run the check engine. `--fail-on` (default `high`) sets the exit-1 severity threshold (`high\|medium\|low\|never`); `--json` prints the raw report for `jq`; `--list-rules` prints every rule with no store needed. Exit codes: `0` clean (or below threshold), `1` findings at or above the threshold, `2` operational failure. |
 | `retrace export <sessionId> [--json] [--output <path>]` | Export a session — a self-contained HTML file by default, or `--json` for the raw data. |
 | `retrace reimport [sessionId] [--all]` | Delete a session's stored data and re-import it from its source transcript (for recovering after a parser-bug fix). `--all` re-imports every session with a known source. |
