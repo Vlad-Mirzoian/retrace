@@ -473,7 +473,7 @@ describe("createProgram — check", () => {
     expect(output()).toMatch(/✗ sess-1 — 2 finding\(s\)/);
     // Sorted worst-severity-first: high before medium.
     expect(output().indexOf("high")).toBeLessThan(output().indexOf("medium"));
-    expect(output()).toMatch(/seq  214.*Bash failed with no follow-up/);
+    expect(output()).toMatch(/seq {2}214.*Bash failed with no follow-up/);
     expect(output()).toMatch(/retrace ui/);
     expect(process.exitCode).toBe(1);
     process.exitCode = 0;

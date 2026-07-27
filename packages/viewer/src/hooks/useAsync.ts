@@ -23,7 +23,6 @@ export function useAsync<T>(fetcher: () => Promise<T>, deps: unknown[]): AsyncSt
       cancelled = true;
     };
     // deps is caller-controlled, deliberately not including `fetcher` itself.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
   return state;

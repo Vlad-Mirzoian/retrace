@@ -127,7 +127,9 @@ async function waitForPort(port, timeoutMs = 15_000) {
       return res;
     } catch (err) {
       if (Date.now() > deadline) {
-        throw new Error(`retrace ui never became reachable on port ${port} within ${timeoutMs}ms: ${err.message}`);
+        throw new Error(`retrace ui never became reachable on port ${port} within ${timeoutMs}ms: ${err.message}`, {
+          cause: err,
+        });
       }
       await new Promise((resolve) => setTimeout(resolve, 250));
     }

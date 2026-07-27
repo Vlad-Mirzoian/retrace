@@ -42,7 +42,8 @@
   "scripts": {
     "build": "tsup && node scripts/copy-viewer-dist.mjs",
     "test": "vitest run",
-    "prepublishOnly": "pnpm build && pnpm test"
+    "prepublishOnly": "pnpm build && pnpm test",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^2.0.8",

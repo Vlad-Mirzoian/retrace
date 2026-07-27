@@ -1,7 +1,8 @@
 import type { RetraceEvent } from "retrace-core/browser";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { forwardRef, useImperativeHandle } from "react";
+import { forwardRef, useImperativeHandle, type ForwardedRef } from "react";
+import type { VirtuosoHandle, VirtuosoProps } from "react-virtuoso";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { groupEvents } from "./grouping.js";
 import { Timeline } from "./Timeline.js";
@@ -13,13 +14,13 @@ import { Timeline } from "./Timeline.js";
 // independent of Virtuoso's own (untestable-here) internals.
 const scrollToIndex = vi.hoisted(() => vi.fn());
 vi.mock("react-virtuoso", () => ({
-  Virtuoso: forwardRef((props: any, ref: any) => {
-    useImperativeHandle(ref, () => ({ scrollToIndex }));
+  Virtuoso: forwardRef((props: VirtuosoProps<unknown, unknown>, ref: ForwardedRef<VirtuosoHandle>) => {
+    useImperativeHandle(ref, () => ({ scrollToIndex }) as unknown as VirtuosoHandle);
     return (
       <div>
-        {props.data.map((item: unknown, i: number) => (
-          <div key={props.computeItemKey ? props.computeItemKey(i, item) : i}>
-            {props.itemContent(i, item)}
+        {props.data?.map((item: unknown, i: number) => (
+          <div key={props.computeItemKey ? props.computeItemKey(i, item, undefined) : i}>
+            {props.itemContent?.(i, item, undefined)}
           </div>
         ))}
       </div>
