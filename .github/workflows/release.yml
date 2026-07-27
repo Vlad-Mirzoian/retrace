@@ -37,24 +37,6 @@ jobs:
       - run: pnpm test
       - run: pnpm verify:pack -- --skip-build
 
-      # Publish retrace-core, THEN retrace-cli — the order matters:
-      # retrace-cli declares a dependency on retrace-core at whatever concrete
-      # version `pnpm pack` rewrites "workspace:*" into, and that version must
-      # already resolve on the registry by the time retrace-cli is installed.
-      #
-      # Why `npm publish <tarball>` instead of `pnpm publish` here: npm
-      # provenance requires the publishing CLI to support it, and the pinned
-      # pnpm version (see packageManager in the root package.json) has no
-      # --provenance flag at all (`pnpm publish --help` lists none — verified
-      # directly, not assumed). Falling back to `npm publish` on the live
-      # workspace source would be unsafe on its own, though: npm does not
-      # rewrite "workspace:*" specifiers, so retrace-cli's dependency on
-      # retrace-core would publish literally as "workspace:*" — an
-      # uninstallable version (see RELEASING.md). The fix is to let `pnpm
-      # pack` do the rewriting first (it already ran above, inside
-      # verify:pack) and have `npm publish` upload that pre-built tarball
-      # directly — npm reads a tarball argument's own embedded package.json
-      # and never touches the live source tree's.
       - name: Pack both packages for publishing
         run: |
           mkdir -p /tmp/release-tarballs
@@ -63,10 +45,6 @@ jobs:
 
       - name: Publish retrace-core
         run: npm publish /tmp/release-tarballs/retrace-core-*.tgz --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish retrace-cli
         run: npm publish /tmp/release-tarballs/retrace-cli-*.tgz --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
