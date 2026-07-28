@@ -6,8 +6,34 @@
   --text-muted: #8b949e;
   --accent: #58a6ff;
   --danger: #f85149;
+  --success: #3fb950;
+  --warn: #d29922;
+  --purple: #a371f7;
   --font-sans: -apple-system, "Segoe UI", system-ui, sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+
+  /* Spacing scale — every gap/padding in this file is one of these, so
+     rhythm stays consistent instead of ad-hoc 6px/8px/10px choices. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+
+  /* Type scale — gives headings a real hierarchy instead of every label
+     being the same 11px uppercase muted text. */
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 14px;
+  --fs-md: 16px;
+  --fs-lg: 20px;
+  --fs-xl: 26px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
 }
 
 * {
@@ -19,7 +45,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: var(--fs-base);
+  line-height: 1.5;
 }
 
 a {
@@ -30,6 +57,29 @@ a:hover {
   text-decoration: underline;
 }
 
+h1,
+h2,
+h3 {
+  font-family: var(--font-sans);
+  color: var(--text);
+}
+h1 {
+  font-size: var(--fs-xl);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--sp-1);
+}
+h2 {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  margin: 0 0 var(--sp-2);
+}
+h3 {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  margin: 0 0 var(--sp-1);
+}
+
 table {
   border-collapse: collapse;
   width: 100%;
@@ -37,7 +87,7 @@ table {
 th,
 td {
   text-align: left;
-  padding: 6px 12px;
+  padding: var(--sp-2) var(--sp-3);
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
@@ -45,8 +95,20 @@ th {
   color: var(--text-muted);
   font-weight: 600;
   text-transform: uppercase;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.04em;
+}
+tbody tr:hover {
+  background: var(--bg-elevated);
+}
+.col-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.col-truncate {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 code,
@@ -54,13 +116,17 @@ pre {
   font-family: var(--font-mono);
 }
 
+.mono {
+  font-family: var(--font-mono);
+}
+
 .app-header {
-  padding: 12px 20px;
+  padding: var(--sp-3) var(--sp-5);
   border-bottom: 1px solid var(--border);
 }
 
 .page {
-  padding: 20px;
+  padding: var(--sp-5);
 }
 
 .muted {
@@ -72,29 +138,105 @@ pre {
 }
 
 .small {
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
-.verify-badge {
-  margin: 4px 0 0;
-  font-size: 12px;
+/* --- session header --- */
+
+.session-header {
+  margin-bottom: var(--sp-4);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border);
 }
-.verify-ok {
-  color: #3fb950;
+.session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-1) 0 0;
 }
-.verify-broken {
+.meta-item {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.meta-item.mono {
+  font-family: var(--font-mono);
+}
+.meta-item + .meta-item::before {
+  content: "·";
+  margin-right: var(--sp-2);
+  color: var(--border);
+}
+.badge-verify-ok {
+  border-color: var(--success);
+  color: var(--success);
+}
+.badge-verify-broken {
+  border-color: var(--danger);
   color: var(--danger);
   font-weight: 600;
 }
 
-/* --- timeline cards --- */
+/* --- generic panel: bordered section with a header row, used for the
+   sidebar (Findings/Failures/Working tree) so each reads as its own block
+   instead of blending into an endless scroll --- */
+
+.panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  margin: 0 0 var(--sp-4);
+  overflow: hidden;
+}
+.panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+}
+.panel-title {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.panel-count {
+  margin-left: auto;
+  font-size: var(--fs-2xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.panel-body {
+  padding: var(--sp-3);
+}
+
+/* --- timeline cards ---
+   Default cards are flat/quiet (the common case — tool calls, thinking,
+   session bookkeeping). Prompts, assistant replies, file changes and errors
+   get a raised background and an accent border so the narrative beats pop
+   out of the stream instead of every event looking equally heavy. */
 
 .card {
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-elevated);
-  margin: 0 0 8px;
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  margin: 0 0 var(--sp-2);
   overflow: hidden;
+}
+.card-kind-user,
+.card-kind-assistant,
+.card-kind-file,
+.card-error {
+  background: var(--bg-elevated);
+}
+.card-kind-user {
+  border-color: var(--accent);
+}
+.card-kind-file {
+  border-color: var(--purple);
 }
 .card-error {
   border-color: var(--danger);
@@ -102,17 +244,17 @@ pre {
 .card-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
   border-bottom: 1px solid var(--border);
 }
 .card-body {
-  padding: 8px 10px;
+  padding: var(--sp-2) var(--sp-3);
 }
 .card-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -122,13 +264,13 @@ pre {
   margin-left: auto;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   flex: 0 0 auto;
 }
 
 .kind {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-muted);
@@ -138,13 +280,13 @@ pre {
   color: var(--accent);
 }
 .kind-assistant {
-  color: #3fb950;
+  color: var(--success);
 }
 .kind-tool {
-  color: #d29922;
+  color: var(--warn);
 }
 .kind-file {
-  color: #a371f7;
+  color: var(--purple);
 }
 .kind-error {
   color: var(--danger);
@@ -154,7 +296,7 @@ pre {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--text-muted);
 }
 .badge-error {
@@ -167,9 +309,9 @@ pre {
 }
 .file-path {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--text-muted);
-  margin: 0 0 6px;
+  margin: 0 0 var(--sp-1);
   overflow-wrap: anywhere;
 }
 
@@ -190,18 +332,18 @@ pre {
 
 .code {
   margin: 0;
-  padding: 8px;
-  background: var(--bg);
+  padding: var(--sp-2);
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  font-size: 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 420px;
   overflow: auto;
 }
 .tool-result {
-  margin-top: 8px;
+  margin-top: var(--sp-2);
 }
 
 /* --- collapsible --- */
@@ -212,7 +354,7 @@ pre {
   color: var(--accent);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   padding: 2px 0;
   text-align: left;
 }
@@ -225,7 +367,7 @@ pre {
   color: var(--text-muted);
 }
 .collapsible-body {
-  margin-top: 6px;
+  margin-top: var(--sp-1);
 }
 
 /* --- diff --- */
@@ -233,14 +375,14 @@ pre {
 .diff {
   margin: 0;
   border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  font-size: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  font-size: var(--fs-xs);
   overflow: auto;
   max-height: 420px;
 }
 .diff-line {
-  padding: 0 8px;
+  padding: 0 var(--sp-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -265,12 +407,12 @@ pre {
 /* --- subagent group --- */
 
 .subagent {
-  border-left: 2px solid #a371f7;
-  padding-left: 10px;
-  margin: 0 0 8px;
+  border-left: 2px solid var(--purple);
+  padding-left: var(--sp-3);
+  margin: 0 0 var(--sp-2);
 }
 .subagent-body {
-  margin-top: 6px;
+  margin-top: var(--sp-1);
 }
 
 /* --- replay controls --- */
@@ -279,9 +421,9 @@ pre {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0;
-  margin-bottom: 10px;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+  margin-bottom: var(--sp-3);
   border-bottom: 1px solid var(--border);
   /* Pinned so Play/Pause/step stay reachable no matter how far the replay
      cursor has auto-scrolled the page — otherwise stopping playback means
@@ -294,7 +436,7 @@ pre {
 .replay-controls button {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   cursor: pointer;
   font: inherit;
@@ -322,7 +464,7 @@ pre {
 .replay-speed select {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   font: inherit;
   margin-left: 4px;
@@ -336,7 +478,7 @@ pre {
 .timeline-row.active {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 
 /* --- session split view (timeline + working tree) --- */
@@ -344,7 +486,7 @@ pre {
 .session-columns {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
+  gap: var(--sp-4);
 }
 .session-column-main {
   flex: 1 1 60%;
@@ -354,13 +496,13 @@ pre {
   flex: 1 1 320px;
   max-width: 380px;
   position: sticky;
-  top: 8px;
+  top: var(--sp-2);
   max-height: calc(100vh - 16px);
   overflow: auto;
 }
 .side-heading {
-  margin: 0 0 8px;
-  font-size: 11px;
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -382,24 +524,24 @@ pre {
 
 .working-tree-list {
   list-style: none;
-  margin: 0 0 10px;
+  margin: 0 0 var(--sp-3);
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 .working-tree-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   width: 100%;
-  background: var(--bg-elevated);
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   cursor: pointer;
   font: inherit;
-  padding: 4px 8px;
+  padding: 4px var(--sp-2);
   text-align: left;
 }
 .working-tree-item.active {
@@ -414,7 +556,7 @@ pre {
 .working-tree-status-write,
 .working-tree-status-edit,
 .working-tree-status-notebook_edit {
-  color: #3fb950;
+  color: var(--success);
 }
 .working-tree-status-delete {
   color: var(--danger);
@@ -424,21 +566,21 @@ pre {
 }
 
 .file-state-view {
-  margin-top: 8px;
+  margin-top: var(--sp-2);
 }
 .file-state-toggle {
   display: flex;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: var(--sp-2);
 }
 .file-state-toggle button {
-  background: var(--bg-elevated);
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   padding: 2px 8px;
 }
 .file-state-toggle button.active {
@@ -451,36 +593,36 @@ pre {
 .failure-jump-first {
   display: block;
   width: 100%;
-  margin-bottom: 8px;
-  background: var(--bg-elevated);
+  margin-bottom: var(--sp-2);
+  background: var(--bg);
   border: 1px solid var(--danger);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--danger);
   cursor: pointer;
   font: inherit;
   font-weight: 600;
-  padding: 4px 8px;
+  padding: 4px var(--sp-2);
 }
 .failure-list {
   list-style: none;
-  margin: 0 0 10px;
+  margin: 0 0 var(--sp-3);
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 .failure-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
   width: 100%;
-  background: var(--bg-elevated);
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   cursor: pointer;
   font: inherit;
-  padding: 4px 8px;
+  padding: 4px var(--sp-2);
   text-align: left;
 }
 .failure-item.active {
@@ -493,17 +635,17 @@ pre {
 }
 
 .causal-trace {
-  margin-top: 8px;
+  margin-top: var(--sp-2);
 }
 
 /* --- findings panel --- */
 
 .findings-group {
-  margin-bottom: 8px;
+  margin-bottom: var(--sp-2);
 }
 .findings-group-heading {
-  margin: 0 0 4px;
-  font-size: 11px;
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -515,21 +657,21 @@ pre {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 .finding-item {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--sp-2);
   width: 100%;
-  background: var(--bg-elevated);
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   cursor: pointer;
   font: inherit;
-  padding: 4px 8px;
+  padding: 4px var(--sp-2);
   text-align: left;
 }
 .finding-item.active {
@@ -537,7 +679,7 @@ pre {
 }
 .finding-rule {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--text-muted);
 }
 .finding-title {
@@ -553,31 +695,31 @@ pre {
   color: var(--danger);
 }
 .badge-severity-medium {
-  border-color: #d29922;
-  color: #d29922;
+  border-color: var(--warn);
+  color: var(--warn);
 }
 .badge-severity-low {
   border-color: var(--text-muted);
   color: var(--text-muted);
 }
 .subagent-tag {
-  border: 1px solid #a371f7;
+  border: 1px solid var(--purple);
   border-radius: 10px;
   padding: 0 6px;
-  font-size: 11px;
-  color: #a371f7;
+  font-size: var(--fs-2xs);
+  color: var(--purple);
 }
 .finding-detail {
-  margin-top: 8px;
+  margin-top: var(--sp-2);
 }
 .findings-skipped {
-  margin-top: 10px;
-  padding-top: 8px;
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-2);
   border-top: 1px dashed var(--border);
 }
 .findings-skipped-heading {
-  margin: 0 0 4px;
-  font-size: 11px;
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-2xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -595,19 +737,19 @@ pre {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0;
-  margin-bottom: 10px;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+  margin-bottom: var(--sp-3);
   border-bottom: 1px solid var(--border);
 }
 .filter-search {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text);
-  padding: 4px 8px;
+  padding: 4px var(--sp-2);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   min-width: 200px;
 }
 .filter-kinds {
@@ -622,7 +764,7 @@ pre {
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   padding: 2px 10px;
 }
 .filter-chip.active {
@@ -638,11 +780,11 @@ pre {
 .compare-headers {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  margin-bottom: 10px;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-3);
 }
 .compare-headers h2 {
-  font-size: 15px;
+  font-size: var(--fs-lg);
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -652,33 +794,33 @@ pre {
 .compare-timeline {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  margin-bottom: 20px;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-5);
 }
 .compare-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: var(--sp-4);
 }
 .compare-cell {
   min-width: 0;
 }
 .compare-cell-empty {
   border: 1px dashed var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 .compare-row-changed .compare-cell:not(.compare-cell-empty) {
-  outline: 2px solid #d29922;
+  outline: 2px solid var(--warn);
   outline-offset: -1px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 .compare-row-only-a .compare-cell:not(.compare-cell-empty),
 .compare-row-only-b .compare-cell:not(.compare-cell-empty) {
   outline: 2px solid var(--danger);
   outline-offset: -1px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 
 .final-diff-file {
-  margin-bottom: 16px;
+  margin-bottom: var(--sp-4);
 }

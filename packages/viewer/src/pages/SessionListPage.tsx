@@ -2,6 +2,7 @@ import { formatDuration } from "retrace-core/browser";
 import { Link } from "react-router-dom";
 import { listSessions } from "../api/client.js";
 import { useAsync } from "../hooks/useAsync.js";
+import { projectLabel } from "../projectLabel.js";
 
 function formatTimestamp(ts: string | null): string {
   if (!ts) return "—";
@@ -32,26 +33,31 @@ export function SessionListPage() {
                 <th>Title</th>
                 <th>Started</th>
                 <th>Duration</th>
-                <th>Events</th>
-                <th>Tools</th>
+                <th className="col-num">Events</th>
+                <th className="col-num">Tools</th>
               </tr>
             </thead>
             <tbody>
-              {state.data.map((session) => (
-                <tr key={session.id}>
-                  <td>
-                    <Link to={`/sessions/${session.id}`}>
-                      {session.project ?? session.id.slice(0, 10)}
-                    </Link>
-                  </td>
-                  <td>{session.gitBranch ?? "—"}</td>
-                  <td>{session.title ?? "—"}</td>
-                  <td>{formatTimestamp(session.startedAt)}</td>
-                  <td>{formatDuration(session.startedAt, session.endedAt) ?? "—"}</td>
-                  <td>{session.eventCount}</td>
-                  <td>{session.toolCallCount}</td>
-                </tr>
-              ))}
+              {state.data.map((session) => {
+                const label = projectLabel(session.project, session.cwd);
+                return (
+                  <tr key={session.id}>
+                    <td className="col-truncate" title={session.cwd ?? session.project ?? undefined}>
+                      <Link to={`/sessions/${session.id}`}>
+                        {label !== "—" ? label : session.id.slice(0, 10)}
+                      </Link>
+                    </td>
+                    <td className="mono small">{session.gitBranch ?? "—"}</td>
+                    <td className="col-truncate" title={session.title ?? undefined}>
+                      {session.title ?? "—"}
+                    </td>
+                    <td>{formatTimestamp(session.startedAt)}</td>
+                    <td>{formatDuration(session.startedAt, session.endedAt) ?? "—"}</td>
+                    <td className="col-num">{session.eventCount}</td>
+                    <td className="col-num">{session.toolCallCount}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         ))}

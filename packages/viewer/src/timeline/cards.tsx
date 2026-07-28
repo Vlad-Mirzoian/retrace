@@ -21,7 +21,7 @@ export function Card({
   tone?: "error";
 }) {
   return (
-    <article className={`card${tone ? ` card-${tone}` : ""}`}>
+    <article className={`card card-kind-${kind}${tone ? ` card-${tone}` : ""}`}>
       <header className="card-head">
         <span className={`kind kind-${kind}`}>{kind}</span>
         {title && <span className="card-title">{title}</span>}

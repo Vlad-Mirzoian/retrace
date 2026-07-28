@@ -9,7 +9,7 @@ vi.mock("../api/client.js");
 const session: SessionRow = {
   id: "sess-1",
   project: "demo",
-  cwd: "/repo",
+  cwd: "/work/demo",
   gitBranch: "main",
   ccVersion: "2.1.181",
   permissionMode: "default",

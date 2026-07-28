@@ -53,12 +53,33 @@ export function SessionDetailPage() {
               <SessionTimelinePanel events={events.data} />
             </div>
             <div className="session-column-side">
-              <h2 className="side-heading">Findings</h2>
-              {report && <FindingsPanel report={report} events={events.data} />}
-              <h2 className="side-heading">Failures</h2>
-              <FailurePanel events={events.data} />
-              <h2 className="side-heading">Working tree</h2>
-              <WorkingTreePanel events={events.data} />
+              <section className="panel">
+                <header className="panel-header">
+                  <h2 className="panel-title">Findings</h2>
+                  {report && report.findings.length > 0 && (
+                    <span className="panel-count">{report.findings.length}</span>
+                  )}
+                </header>
+                <div className="panel-body">
+                  {report && <FindingsPanel report={report} events={events.data} />}
+                </div>
+              </section>
+              <section className="panel">
+                <header className="panel-header">
+                  <h2 className="panel-title">Failures</h2>
+                </header>
+                <div className="panel-body">
+                  <FailurePanel events={events.data} />
+                </div>
+              </section>
+              <section className="panel">
+                <header className="panel-header">
+                  <h2 className="panel-title">Working tree</h2>
+                </header>
+                <div className="panel-body">
+                  <WorkingTreePanel events={events.data} />
+                </div>
+              </section>
             </div>
           </div>
         </ReplayProvider>

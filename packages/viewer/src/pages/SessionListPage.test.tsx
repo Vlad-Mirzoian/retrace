@@ -10,8 +10,10 @@ vi.mock("../api/client.js");
 function session(overrides: Partial<SessionRow> = {}): SessionRow {
   return {
     id: "sess-1234567890",
-    project: "my-project",
-    cwd: "/repo",
+    // Deliberately mangled, like a real Claude Code project dir — the
+    // viewer should prefer cwd's basename ("my-project") for display.
+    project: "-home-dev-my-project",
+    cwd: "/home/dev/my-project",
     gitBranch: "main",
     ccVersion: "2.1.181",
     permissionMode: "default",
