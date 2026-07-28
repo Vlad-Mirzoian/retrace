@@ -264,6 +264,29 @@ describe("RetraceStore.deleteSession", () => {
   });
 });
 
+describe("RetraceStore.reset", () => {
+  it("deletes the entire home directory, sessions and all", () => {
+    store.appendEvent(prompt("s1", "one"));
+    store.appendEvent(prompt("s2", "two"));
+    expect(existsSync(home)).toBe(true);
+
+    store.reset();
+    expect(existsSync(home)).toBe(false);
+  });
+
+  it("closes the db handle, so a fresh store can reopen the same homeDir afterward", () => {
+    store.appendEvent(prompt("s1", "one"));
+    store.reset();
+
+    const fresh = new RetraceStore(home);
+    try {
+      expect(fresh.listSessions()).toEqual([]);
+    } finally {
+      fresh.close();
+    }
+  });
+});
+
 describe("RetraceStore.listImportedSessionIds", () => {
   it("lists only sessions with a known source transcript", () => {
     store.appendEvent(prompt("hook-only", "from a live hook"));

@@ -13,6 +13,9 @@ import type { ReimportAllSummary, ReimportResult } from "./commands/reimport.js"
 import type { VerifyAllSummary, VerifyResult } from "./commands/verify.js";
 import type { CheckAllSummary, CheckSessionResult } from "./commands/check.js";
 import type { CompareOptions } from "./commands/compare.js";
+import type { DeleteSessionsSummary } from "./commands/delete.js";
+import type { ResetResult } from "./commands/reset.js";
+import { confirm } from "./confirm.js";
 import { CLI_VERSION } from "./version.js";
 
 // Command implementations are pulled in only when their command actually runs.
@@ -31,6 +34,8 @@ const lazy = {
   verify: () => import("./commands/verify.js"),
   compare: () => import("./commands/compare.js"),
   check: () => import("./commands/check.js"),
+  delete: () => import("./commands/delete.js"),
+  reset: () => import("./commands/reset.js"),
 };
 
 export interface ProgramDeps {
@@ -65,6 +70,10 @@ export interface ProgramDeps {
     idBOrPrefix: string,
     options?: CompareOptions,
   ) => Promise<UiHandle>;
+  deleteSessions?: (store: RetraceStore, idsOrPrefixes: string[]) => DeleteSessionsSummary;
+  resetStore?: (store: RetraceStore) => ResetResult;
+  /** Yes/no prompt for `delete`/`reset` when `--yes` isn't given. Injectable so tests never block on real stdin. */
+  confirm?: (question: string) => Promise<boolean>;
   /** Absolute path to the embedded viewer build; passed by cli.ts (see server/app.ts). */
   viewerDir?: string;
   /** Absolute path to the embedded single-file export template; passed by cli.ts. */
@@ -111,6 +120,10 @@ interface CheckCommandOptions {
   failOn?: string;
   disable?: string[];
   listRules?: boolean;
+}
+
+interface YesOption {
+  yes?: boolean;
 }
 
 const FAIL_ON_VALUES = ["high", "medium", "low", "never"] as const;
@@ -505,6 +518,63 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       process.once("SIGTERM", stop);
       // As with `ui`, the server's own listening socket keeps the process
       // alive until `stop` runs — nothing to await here.
+    });
+
+  program
+    .command("delete <sessionId...>")
+    .description("Permanently delete one or more sessions and their recorded events")
+    .option("-y, --yes", "skip the confirmation prompt")
+    .action(async (sessionIds: string[], opts: YesOption) => {
+      const store = createStore();
+      try {
+        if (!opts.yes) {
+          const confirmFn = deps.confirm ?? confirm;
+          const label = sessionIds.length === 1 ? "1 session" : `${sessionIds.length} sessions`;
+          const ok = await confirmFn(
+            `Permanently delete ${label} (${sessionIds.join(", ")})? This cannot be undone.`,
+          );
+          if (!ok) {
+            console.log("Aborted — nothing was deleted.");
+            return;
+          }
+        }
+
+        const deleteSessions = deps.deleteSessions ?? (await lazy.delete()).deleteSessions;
+        const { deleted, failed } = deleteSessions(store, sessionIds);
+        for (const id of deleted) console.log(`${id}: deleted`);
+        if (failed.length > 0) {
+          for (const f of failed) console.error(`${f.input}: FAILED — ${f.error}`);
+          process.exitCode = 1;
+        }
+      } finally {
+        store.close();
+      }
+    });
+
+  program
+    .command("reset")
+    .description(
+      "Permanently delete the entire Retrace store — every session and every recorded " +
+        "snapshot, everything in ~/.retrace (or $RETRACE_HOME)",
+    )
+    .option("-y, --yes", "skip the confirmation prompt")
+    .action(async (opts: YesOption) => {
+      const store = createStore();
+      if (!opts.yes) {
+        const confirmFn = deps.confirm ?? confirm;
+        const ok = await confirmFn(
+          `Permanently delete everything in ${store.homeDir}? This cannot be undone.`,
+        );
+        if (!ok) {
+          console.log("Aborted — nothing was deleted.");
+          store.close();
+          return;
+        }
+      }
+
+      const resetStore = deps.resetStore ?? (await lazy.reset()).resetStore;
+      const result = resetStore(store);
+      console.log(`Deleted ${result.sessionCount} session(s) and removed ${result.homeDir}.`);
     });
 
   return program;

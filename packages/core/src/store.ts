@@ -417,7 +417,16 @@ export class RetraceStore {
     this.deleteSessionRow.run(sessionId);
     this.chainState.delete(sessionId);
 
-    rmSync(join(this.homeDir, "sessions", sessionId), { recursive: true, force: true });
+    // maxRetries/retryDelay: a transient Windows file lock (antivirus, the
+    // search indexer, another retrace process momentarily touching this
+    // session's files) surfaces as EBUSY/EPERM on unlink — worth a few
+    // retries before giving up, rather than leaving the dir half-deleted.
+    rmSync(join(this.homeDir, "sessions", sessionId), {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 200,
+    });
 
     return { importPaths };
   }
@@ -427,6 +436,24 @@ export class RetraceStore {
     return asRow<{ session_id: string }[]>(this.selectAllImportedSessionIds.all()).map(
       (row) => row.session_id,
     );
+  }
+
+  /**
+   * Permanently delete the entire store: every session, the SQLite index,
+   * and every CAS object — the whole of {@link homeDir}, not just its known
+   * sessions. Closes the db handle first; on Windows a still-open handle
+   * blocks deletion of the file it points at. The instance is unusable after
+   * this — there is nothing left on disk for it to talk to.
+   *
+   * maxRetries/retryDelay: `store.db` in particular is a magnet for
+   * transient Windows locks (antivirus, the search indexer, a stray retrace
+   * process that didn't exit) — worth a few retries before giving up, rather
+   * than throwing partway through and leaving `sessions/`/`objects/` already
+   * gone but `store.db` still sitting there.
+   */
+  reset(): void {
+    this.close();
+    rmSync(this.homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 }
 

@@ -11,6 +11,8 @@ import type { ExportResult } from "./commands/export.js";
 import type { ReimportAllSummary, ReimportResult } from "./commands/reimport.js";
 import type { VerifyAllSummary, VerifyResult } from "./commands/verify.js";
 import type { CheckAllSummary, CheckSessionResult } from "./commands/check.js";
+import type { DeleteSessionsSummary } from "./commands/delete.js";
+import type { ResetResult } from "./commands/reset.js";
 import { createProgram } from "./program.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -705,5 +707,107 @@ describe("createProgram — compare", () => {
     const [, , , options] = startCompare.mock.calls[0];
     expect(options.openBrowser).toBe(false);
     process.emit("SIGINT");
+  });
+});
+
+describe("createProgram — delete", () => {
+  it("deletes the given sessions without prompting when --yes is passed", async () => {
+    const summary: DeleteSessionsSummary = { deleted: ["sess-1", "sess-2"], failed: [] };
+    const deleteSessions = vi.fn().mockReturnValue(summary);
+    const confirm = vi.fn();
+
+    const program = createProgram({ createStore: () => store, deleteSessions, confirm });
+    await program.parseAsync(["node", "retrace", "delete", "sess-1", "sess-2", "--yes"]);
+
+    expect(confirm).not.toHaveBeenCalled();
+    const [passedStore, ids] = deleteSessions.mock.calls[0];
+    expect(passedStore).toBe(store);
+    expect(ids).toEqual(["sess-1", "sess-2"]);
+    expect(output()).toMatch(/sess-1: deleted/);
+    expect(output()).toMatch(/sess-2: deleted/);
+  });
+
+  it("prompts for confirmation, and skips deletion when declined", async () => {
+    const deleteSessions = vi.fn();
+    const confirm = vi.fn().mockResolvedValue(false);
+
+    const program = createProgram({ createStore: () => store, deleteSessions, confirm });
+    await program.parseAsync(["node", "retrace", "delete", "sess-1"]);
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm.mock.calls[0][0]).toMatch(/permanently delete 1 session \(sess-1\)/i);
+    expect(deleteSessions).not.toHaveBeenCalled();
+    expect(output()).toMatch(/aborted/i);
+  });
+
+  it("deletes when the user confirms", async () => {
+    const summary: DeleteSessionsSummary = { deleted: ["sess-1"], failed: [] };
+    const deleteSessions = vi.fn().mockReturnValue(summary);
+    const confirm = vi.fn().mockResolvedValue(true);
+
+    const program = createProgram({ createStore: () => store, deleteSessions, confirm });
+    await program.parseAsync(["node", "retrace", "delete", "sess-1"]);
+
+    expect(deleteSessions).toHaveBeenCalledTimes(1);
+    expect(output()).toMatch(/sess-1: deleted/);
+  });
+
+  it("reports unresolvable ids via console.error and sets a non-zero exit code, without stopping the rest", async () => {
+    const summary: DeleteSessionsSummary = {
+      deleted: ["sess-good"],
+      failed: [{ input: "sess-gone", error: 'no session matches "sess-gone"' }],
+    };
+    const deleteSessions = vi.fn().mockReturnValue(summary);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram({ createStore: () => store, deleteSessions });
+    await program.parseAsync(["node", "retrace", "delete", "sess-good", "sess-gone", "--yes"]);
+
+    expect(output()).toMatch(/sess-good: deleted/);
+    expect(errorSpy.mock.calls.join("\n")).toMatch(/sess-gone: FAILED — no session matches/);
+    expect(process.exitCode).toBe(1);
+
+    errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
+});
+
+describe("createProgram — reset", () => {
+  it("wipes the store without prompting when --yes is passed", async () => {
+    const result: ResetResult = { homeDir: "/home/.retrace", sessionCount: 3 };
+    const resetStore = vi.fn().mockReturnValue(result);
+    const confirm = vi.fn();
+
+    const program = createProgram({ createStore: () => store, resetStore, confirm });
+    await program.parseAsync(["node", "retrace", "reset", "--yes"]);
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(resetStore).toHaveBeenCalledWith(store);
+    expect(output()).toMatch(/deleted 3 session\(s\) and removed \/home\/\.retrace/i);
+  });
+
+  it("prompts for confirmation, naming the store's homeDir, and skips the wipe when declined", async () => {
+    const resetStore = vi.fn();
+    const confirm = vi.fn().mockResolvedValue(false);
+
+    const program = createProgram({ createStore: () => store, resetStore, confirm });
+    await program.parseAsync(["node", "retrace", "reset"]);
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm.mock.calls[0][0]).toContain(store.homeDir);
+    expect(resetStore).not.toHaveBeenCalled();
+    expect(output()).toMatch(/aborted/i);
+  });
+
+  it("wipes the store when the user confirms", async () => {
+    const result: ResetResult = { homeDir: store.homeDir, sessionCount: 0 };
+    const resetStore = vi.fn().mockReturnValue(result);
+    const confirm = vi.fn().mockResolvedValue(true);
+
+    const program = createProgram({ createStore: () => store, resetStore, confirm });
+    await program.parseAsync(["node", "retrace", "reset"]);
+
+    expect(resetStore).toHaveBeenCalledTimes(1);
+    expect(output()).toMatch(/deleted 0 session\(s\)/i);
   });
 });
