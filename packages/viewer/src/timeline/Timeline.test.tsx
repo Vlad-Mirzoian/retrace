@@ -48,6 +48,12 @@ const assistant = (text: string): RetraceEvent =>
 const thinking = (text: string): RetraceEvent =>
   ({ ...base(), kind: "thinking", payload: { text } }) as RetraceEvent;
 
+const toolCall = (toolUseId: string, toolName = "Bash"): RetraceEvent =>
+  ({ ...base(), kind: "tool_call", payload: { toolName, toolUseId, input: {} } }) as RetraceEvent;
+
+const toolResult = (toolUseId: string): RetraceEvent =>
+  ({ ...base(), kind: "tool_result", payload: { toolUseId, output: "ok" } }) as RetraceEvent;
+
 function renderTimeline(events: RetraceEvent[]) {
   return render(<Timeline items={groupEvents(events)} />);
 }
@@ -136,6 +142,31 @@ describe("Timeline", () => {
       // No click on the group toggle — it opened itself because the cursor
       // (sub2's seq) falls inside this subagent's [sub1..sub2] range.
       expect(screen.getByText("more sub work")).toBeInTheDocument();
+    });
+
+    it("highlights exactly one row when parallel tool calls give rows overlapping ranges", () => {
+      // Three calls fired back to back, results arriving afterward — the
+      // real shape that used to stall playback: row0's range legitimately
+      // reaches past call1 and call2's own seqs. At call1's seq, only
+      // call1's row (the second one rendered) should be active, not call0's
+      // too.
+      const call0 = toolCall("t0", "Grep");
+      const call1 = toolCall("t1", "Grep");
+      const call2 = toolCall("t2", "Grep");
+      const result0 = toolResult("t0");
+      const result1 = toolResult("t1");
+      const result2 = toolResult("t2");
+      const items = groupEvents([call0, call1, call2, result0, result1, result2]);
+
+      render(<Timeline items={items} currentSeq={call1.seq} onSelect={() => {}} />);
+
+      const rows = document.querySelectorAll(".timeline-row");
+      expect(rows).toHaveLength(3);
+      expect([...rows].map((row) => row.classList.contains("active"))).toEqual([
+        false,
+        true,
+        false,
+      ]);
     });
 
     it("does not highlight or expand anything when no cursor is provided", () => {

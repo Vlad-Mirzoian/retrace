@@ -102,6 +102,33 @@ export function itemRange(item: TimelineItem): [number, number] {
 }
 
 /**
+ * Index of the item whose range most tightly contains `seq`: among every
+ * item whose [start, end] covers it, the one with the largest start.
+ *
+ * Rows can legitimately have overlapping ranges — several tool calls fired
+ * in parallel (e.g. three `Grep`s in one turn) all have `call.seq` values
+ * that land inside an *earlier* sibling's still-open [call, result] window,
+ * since that sibling's own result hasn't arrived yet. Picking the *first*
+ * range that merely reaches far enough (the naive approach) resolves every
+ * one of those calls back to the same, earliest row — which both stalls
+ * playback (indexForSeq keeps re-resolving "next" to a row whose key never
+ * changes) and marks several rows `.active` at once as the cursor advances
+ * through the overlap. Returns -1 if no item's range covers `seq` at all.
+ */
+function tightestIndex(items: TimelineItem[], seq: number): number {
+  let best = -1;
+  let bestStart = -Infinity;
+  for (let i = 0; i < items.length; i++) {
+    const [start, end] = itemRange(items[i]);
+    if (start <= seq && seq <= end && start > bestStart) {
+      best = i;
+      bestStart = start;
+    }
+  }
+  return best;
+}
+
+/**
  * Map a raw event `seq` (the replay cursor) to its row's index in a
  * (filtered + grouped) item list. If `seq` doesn't fall inside any row's
  * range — e.g. it belongs to an event the active filter hid — this snaps
@@ -110,6 +137,9 @@ export function itemRange(item: TimelineItem): [number, number] {
  * stays on the raw seq; this only resolves where to scroll/highlight for it.
  */
 export function indexForSeq(items: TimelineItem[], seq: number): number {
+  const tight = tightestIndex(items, seq);
+  if (tight >= 0) return tight;
+
   for (let i = 0; i < items.length; i++) {
     if (itemRange(items[i])[1] >= seq) return i;
   }
@@ -117,25 +147,39 @@ export function indexForSeq(items: TimelineItem[], seq: number): number {
 }
 
 /**
- * Find the leaf row whose range contains `seq`, descending into subagent
- * groups — unlike {@link indexForSeq}, this never snaps to a neighboring row.
- * Meant to be run over the *ungrouped-by-filter* item list (i.e. before
- * `filterItems`), so a caller can ask "what row does this seq actually belong
- * to, regardless of what's currently hidden" — e.g. to reveal it when a
- * cursor jump (a failure-panel click, a next-error button) lands somewhere
- * the active filter is hiding.
+ * Like {@link indexForSeq}, but never snaps forward to a neighboring row —
+ * returns -1 if no row's range genuinely covers `seq` (e.g. it belongs to a
+ * currently filtered-out event). Used to decide which single row gets the
+ * `.active` highlight, where showing none is correct in that case, unlike
+ * scrolling, which still wants somewhere to land.
+ */
+export function exactIndexForSeq(items: TimelineItem[], seq: number): number {
+  return tightestIndex(items, seq);
+}
+
+/**
+ * Find the leaf row whose range most tightly contains `seq` (see
+ * {@link tightestIndex}), descending into subagent groups — unlike
+ * {@link indexForSeq}, this never snaps to a neighboring row. Meant to be run
+ * over the *ungrouped-by-filter* item list (i.e. before `filterItems`), so a
+ * caller can ask "what row does this seq actually belong to, regardless of
+ * what's currently hidden" — e.g. to reveal it when a cursor jump (a
+ * failure-panel click, a next-error button) lands somewhere the active
+ * filter is hiding.
  */
 export function leafAt(items: TimelineItem[], seq: number): LeafItem | null {
+  let best: LeafItem | null = null;
+  let bestStart = -Infinity;
+
   for (const item of items) {
-    if (item.kind === "subagent") {
-      for (const leaf of item.items) {
-        const [start, end] = itemRange(leaf);
-        if (seq >= start && seq <= end) return leaf;
+    const leaves = item.kind === "subagent" ? item.items : [item];
+    for (const leaf of leaves) {
+      const [start, end] = itemRange(leaf);
+      if (start <= seq && seq <= end && start > bestStart) {
+        best = leaf;
+        bestStart = start;
       }
-    } else {
-      const [start, end] = itemRange(item);
-      if (seq >= start && seq <= end) return item;
     }
   }
-  return null;
+  return best;
 }

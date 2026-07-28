@@ -154,6 +154,54 @@ describe("groupEvents — a file_change right after its tool's result", () => {
   });
 });
 
+describe("groupEvents — parallel tool calls (overlapping ranges)", () => {
+  // Several tool calls fired in one turn (e.g. three Greps back to back) land
+  // as call1, call2, call3, then their results — in whatever order they
+  // finish — all *after* call3. Each row's range is [call.seq, result.seq],
+  // so row1's range legitimately reaches past call2 and call3's own seqs:
+  // ranges overlap. This is the real-world shape of the replay hang.
+  function parallelCalls(n: number) {
+    const calls = Array.from({ length: n }, (_, i) => toolCall(`t${i}`, "Grep"));
+    const results = Array.from({ length: n }, (_, i) => toolResult(`t${i}`));
+    const items = groupEvents([...calls, ...results]);
+    return { calls, results, items };
+  }
+
+  it("gives each parallel call a row whose range overlaps its siblings'", () => {
+    const { calls, results, items } = parallelCalls(3);
+    expect(items).toHaveLength(3);
+    expect(itemRange(items[0])).toEqual([calls[0].seq, results[0].seq]);
+    expect(itemRange(items[1])).toEqual([calls[1].seq, results[1].seq]);
+    // call2's own seq falls inside row0's range — the overlap.
+    expect(calls[1].seq).toBeGreaterThanOrEqual(itemRange(items[0])[0]);
+    expect(calls[1].seq).toBeLessThanOrEqual(itemRange(items[0])[1]);
+  });
+
+  it("resolves each call's own seq to its own row, not always the first overlapping one", () => {
+    const { calls, items } = parallelCalls(4);
+    expect(calls.map((call) => indexForSeq(items, call.seq))).toEqual([0, 1, 2, 3]);
+  });
+
+  it("leafAt resolves the same way — the tightest match, not the first containing one", () => {
+    const { calls, items } = parallelCalls(4);
+    for (const [i, call] of calls.entries()) {
+      const leaf = leafAt(items, call.seq);
+      expect(leaf?.kind === "tool" && leaf.call.payload.toolUseId).toBe(`t${i}`);
+    }
+  });
+
+  it("lets playback step forward through every call instead of stalling on the first", () => {
+    // Regression for the exact hang: from call[i]'s seq, indexForSeq + 1
+    // must land on call[i+1]'s row — never keep re-resolving to row 0.
+    const { calls, items } = parallelCalls(4);
+    for (let i = 0; i < calls.length - 1; i++) {
+      const index = indexForSeq(items, calls[i].seq);
+      expect(index).toBe(i);
+      expect(itemKey(items[index + 1])).toBe(calls[i + 1].seq);
+    }
+  });
+});
+
 describe("groupEvents — subagent grouping", () => {
   it("collapses a contiguous sidechain run into one group", () => {
     const items = groupEvents([

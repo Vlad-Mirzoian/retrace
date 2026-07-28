@@ -1,9 +1,16 @@
 import type { RetraceEvent } from "retrace-core/browser";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { AssistantCard, GenericCard, PromptCard, ThinkingCard } from "./cards.js";
 import { FileChangeCard } from "./FileChangeCard.js";
-import { indexForSeq, itemKey, itemRange, type LeafItem, type TimelineItem } from "./grouping.js";
+import {
+  exactIndexForSeq,
+  indexForSeq,
+  itemKey,
+  itemRange,
+  type LeafItem,
+  type TimelineItem,
+} from "./grouping.js";
 import { Collapsible } from "./primitives.js";
 import { ToolCallCard } from "./ToolCallCard.js";
 
@@ -41,8 +48,15 @@ export function renderEventCard(event: RetraceEvent): ReactNode {
   }
 }
 
-function LeafRow({ item, currentSeq, onSelect }: RowProps & { item: LeafItem }) {
-  const active = currentSeq !== undefined && contains(item, currentSeq);
+function LeafRow({
+  item,
+  active,
+  onSelect,
+}: {
+  item: LeafItem;
+  active: boolean;
+  onSelect?: (seq: number) => void;
+}) {
   const handleClick = onSelect ? () => onSelect(itemKey(item)) : undefined;
   const content =
     item.kind === "tool" ? (
@@ -60,13 +74,20 @@ function LeafRow({ item, currentSeq, onSelect }: RowProps & { item: LeafItem }) 
 
 function SubagentGroup({ items, currentSeq, onSelect }: RowProps & { items: LeafItem[] }) {
   const cursorInside = currentSeq !== undefined && contains({ kind: "subagent", items }, currentSeq);
+  // A subagent can fire its own parallel tool calls, with the same
+  // overlapping-range hazard as the main timeline — resolved the same way,
+  // scoped to just this group's own rows.
+  const activeIndex = useMemo(
+    () => (currentSeq !== undefined ? exactIndexForSeq(items, currentSeq) : -1),
+    [items, currentSeq],
+  );
 
   return (
     <div className="subagent">
       <Collapsible label={`Subagent · ${items.length} event(s)`} forceOpen={cursorInside}>
         <div className="subagent-body">
-          {items.map((item) => (
-            <LeafRow key={itemKey(item)} item={item} currentSeq={currentSeq} onSelect={onSelect} />
+          {items.map((item, index) => (
+            <LeafRow key={itemKey(item)} item={item} active={index === activeIndex} onSelect={onSelect} />
           ))}
         </div>
       </Collapsible>
@@ -74,11 +95,17 @@ function SubagentGroup({ items, currentSeq, onSelect }: RowProps & { items: Leaf
   );
 }
 
-export function TimelineRow({ item, currentSeq, onSelect }: RowProps & { item: TimelineItem }) {
+export function TimelineRow({
+  item,
+  index,
+  activeIndex,
+  currentSeq,
+  onSelect,
+}: RowProps & { item: TimelineItem; index: number; activeIndex: number }) {
   if (item.kind === "subagent") {
     return <SubagentGroup items={item.items} currentSeq={currentSeq} onSelect={onSelect} />;
   }
-  return <LeafRow item={item} currentSeq={currentSeq} onSelect={onSelect} />;
+  return <LeafRow item={item} active={index === activeIndex} onSelect={onSelect} />;
 }
 
 export function Timeline({
@@ -119,6 +146,15 @@ export function Timeline({
     // what's on screen without also hijacking where the user is looking.
   }, [currentSeq]);
 
+  // Resolved once here rather than per-row: rows can have overlapping ranges
+  // (parallel tool calls), so each row deciding "am I active" independently
+  // off its own range can make several of them true at once. Exactly one
+  // index — or none — is ever active.
+  const activeIndex = useMemo(
+    () => (currentSeq !== undefined ? exactIndexForSeq(items, currentSeq) : -1),
+    [items, currentSeq],
+  );
+
   if (items.length === 0) return <p className="muted">No events recorded for this session.</p>;
 
   return (
@@ -134,7 +170,9 @@ export function Timeline({
       useWindowScroll
       data={items}
       computeItemKey={(_, item) => itemKey(item)}
-      itemContent={(_, item) => <TimelineRow item={item} currentSeq={currentSeq} onSelect={onSelect} />}
+      itemContent={(index, item) => (
+        <TimelineRow item={item} index={index} activeIndex={activeIndex} currentSeq={currentSeq} onSelect={onSelect} />
+      )}
       initialItemCount={Math.min(items.length, 15)}
     />
   );
