@@ -49,7 +49,11 @@ $ retrace check 36192c50
 ```
 
 Exits non-zero above the configured severity threshold (default `high`), so it also works as a CI
-gate.
+gate. `high` means the session ended with work in a state the agent's own account does not match and
+nothing in the record resolves it — a failed test/build run nothing ever responded to, or a claim that
+directly contradicts a recorded failure. `medium` is a real behavioral problem with a plausible benign
+explanation, worth a look but not worth blocking. `low` is a claim that couldn't be corroborated from
+the record — informational.
 
 ## Recording, replay and comparison
 
@@ -96,7 +100,7 @@ controls that machine can recompute it. External anchoring, which would change t
 | `retrace list` | List recorded sessions, most recent first. |
 | `retrace init [--global]` | Install Retrace's hooks into Claude Code settings (project-local by default, `--global` for `~/.claude/settings.json`). Backs up the existing file and preserves any hooks already there. |
 | `retrace ui [--port <port>] [--no-open] [--no-import]` | Serve the timeline viewer. Picks a free port by default and opens your browser; `--no-open` for headless use; `--no-import` skips the auto-import when the store is empty. |
-| `retrace check [sessionId] [--all] [--json] [--fail-on <severity>] [--disable <ruleId...>] [--list-rules]` | Run the check engine — catches edits to never-read files, unaddressed tool errors, unverified test/build claims, claimed file changes with no matching edit, and untracked Bash/PowerShell mutations. `--fail-on` (default `high`) sets the exit-1 severity threshold (`high\|medium\|low\|never`); `--json` prints the raw report for `jq`; `--list-rules` prints every rule with no store needed. Exit codes: `0` clean (or below threshold), `1` findings at or above the threshold, `2` operational failure (session not found, ambiguous prefix, store unreadable) — so CI can tell "the agent did something questionable" from "the check itself broke". |
+| `retrace check [sessionId] [--all] [--json] [--fail-on <severity>] [--disable <ruleId...>] [--list-rules]` | Run the check engine — catches edits to never-read files, unaddressed tool errors, unverified test/build claims, claimed file changes with no matching edit, and untracked Bash/PowerShell mutations. `--fail-on` (default `high`) sets the exit-1 severity threshold (`high\|medium\|low\|never`) — `high` means unresolved or contradicted work a reviewer should see before merging, not a reclassification of everything else; `--json` prints the raw report for `jq`; `--list-rules` prints every rule with no store needed. Exit codes: `0` clean (or below threshold), `1` findings at or above the threshold, `2` operational failure (session not found, ambiguous prefix, store unreadable) — so CI can tell "the agent did something questionable" from "the check itself broke". |
 | `retrace export <sessionId> [--json] [--output <path>]` | Export a session — a self-contained HTML file by default, or `--json` for the raw data. |
 | `retrace reimport [sessionId] [--all]` | Delete a session's stored data and re-import it from its source transcript (for recovering after a parser-bug fix). `--all` re-imports every session with a known source. |
 | `retrace verify [sessionId] [--all]` | Verify a session's tamper-evident hash chain, printing `✓ verified` or `✗ tampered at seq N`. Exits non-zero on any failure. |

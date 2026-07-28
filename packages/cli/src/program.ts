@@ -428,7 +428,9 @@ export function createProgram(deps: ProgramDeps = {}): Command {
     .option("--json", "emit the raw report(s) as JSON")
     .option(
       "--fail-on <severity>",
-      "exit non-zero when a finding at or above this severity exists (high|medium|low|never)",
+      "exit non-zero when a finding at or above this severity exists (high|medium|low|never). " +
+        "high: unresolved or contradicted work a reviewer should see before merging. " +
+        "medium: a real issue with a plausible benign explanation. low: an unconfirmable claim.",
       "high",
     )
     .option("--disable <ruleId...>", "skip specific rules")

@@ -1,7 +1,8 @@
 import type { RetraceEvent } from "../../schema.js";
 import { causalChainFor } from "../../replay.js";
 import type { CheckFinding, CheckRule, Severity } from "../types.js";
-import { bashCommand, toolFilePath } from "../toolInput.js";
+import { bashCommand, SHELL_TOOL_NAMES, toolFilePath } from "../toolInput.js";
+import { TEST_BUILD_COMMAND_PATTERNS } from "./unverified-test-claim.js";
 
 const MAX_DETAIL_LENGTH = 120;
 
@@ -90,7 +91,18 @@ export const unaddressedErrorRule: CheckRule = {
       });
       if (addressed) continue;
 
-      const severity: Severity = after.length === 0 ? "high" : "medium";
+      const commandText = originatingCall ? bashCommand(originatingCall.payload.input) : undefined;
+      const isTestOrBuildFailure =
+        originatingCall !== undefined &&
+        SHELL_TOOL_NAMES.has(originatingCall.payload.toolName) &&
+        commandText !== undefined &&
+        TEST_BUILD_COMMAND_PATTERNS.some((pattern) => pattern.test(commandText));
+      // The realistic version of "the session ended on this" — real sessions
+      // almost always have a trailing assistant message, so "nothing at all
+      // after" (after.length === 0) essentially never holds. What actually
+      // signals abandonment is that the agent took no further *action*.
+      const noFurtherAction = !after.some((e) => e.kind === "tool_call");
+      const severity: Severity = isTestOrBuildFailure || noFurtherAction ? "high" : "medium";
       const message = event.kind === "error" ? event.payload.message : outputText(event.payload.output);
       const toolName = originatingCall?.payload.toolName;
       const subject = target ?? toolName;

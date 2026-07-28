@@ -3,6 +3,22 @@
 All notable changes to this project are documented in this file. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking (CI-visible):** `unaddressed-error` and `unverified-test-claim` can now report `high`
+  severity findings. Previously `high` was reachable only when a failed tool call was the literal
+  last event in the whole session — a condition real sessions almost never satisfy, since a trailing
+  assistant message is essentially guaranteed — so the default `--fail-on high` gate never fired
+  against any of the 67 sessions in the measured corpus. It now escalates to `high` when: an
+  unaddressed failure is a failed test/build command (`unaddressed-error`), or the agent took no
+  further tool action after an unaddressed failure (`unaddressed-error`), or the assistant claimed
+  "tests pass" / "the build succeeds" directly contradicting a recorded failing run of that same
+  command (`unverified-test-claim`, previously `medium`). Sessions that previously exited `0` under
+  the default threshold may now exit `1`. See the `Severity` doc comment in
+  `packages/core/src/check/types.ts` for the full contract each escalation is held to.
+
 ## [0.3.0] — 2026-07-27
 
 ### Added

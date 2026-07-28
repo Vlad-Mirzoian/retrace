@@ -124,7 +124,7 @@ describe("runChecks against canonical fixtures", () => {
       },
       {
         ruleId: "unaddressed-error",
-        severity: "medium",
+        severity: "high",
         title: "npm test failed with no follow-up",
         detail: "Error: 3 tests failed in calc.test.ts",
         seq: 8,
@@ -142,7 +142,7 @@ describe("runChecks against canonical fixtures", () => {
       },
       {
         ruleId: "unverified-test-claim",
-        severity: "medium",
+        severity: "high",
         title: "Claimed tests pass, but the last test run failed",
         detail: "All tests pass now.",
         seq: 10,
