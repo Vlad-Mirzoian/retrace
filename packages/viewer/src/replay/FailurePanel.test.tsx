@@ -1,5 +1,6 @@
 import type { RetraceEvent } from "retrace-core/browser";
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { FailurePanel } from "./FailurePanel.js";
 import { ReplayProvider, useReplay } from "./ReplayContext.js";
@@ -28,10 +29,21 @@ function CurrentSeq() {
   return <span data-testid="seq">{currentSeq}</span>;
 }
 
-function renderPanel(fixture: RetraceEvent[] = events) {
+/** Simulates something *other* than this panel moving the shared replay cursor — a click elsewhere in the sidebar, a timeline row, a replay-control step. */
+function JumpElsewhere({ seq }: { seq: number }) {
+  const { setCurrentSeq } = useReplay();
+  return (
+    <button type="button" onClick={() => setCurrentSeq(seq)}>
+      jump elsewhere
+    </button>
+  );
+}
+
+function renderPanel(fixture: RetraceEvent[] = events, extra?: ReactNode) {
   render(
     <ReplayProvider maxSeq={3}>
       <CurrentSeq />
+      {extra}
       <FailurePanel events={fixture} />
     </ReplayProvider>,
   );
@@ -83,5 +95,21 @@ describe("FailurePanel", () => {
   it("does not show a causal trace before any failure is selected", () => {
     renderPanel();
     expect(screen.queryByText(/why did this happen/i)).not.toBeInTheDocument();
+  });
+
+  it("clears the selection when the replay cursor moves elsewhere", () => {
+    renderPanel(events, <JumpElsewhere seq={2} />);
+
+    const button = screen.getByText("top-level failure").closest("button")!;
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/no originating tool call recorded/i)).toBeInTheDocument();
+
+    // Something else (a Finding, a timeline row, a replay-control step) —
+    // anything that moves the shared cursor away from this failure's own
+    // seq — must clear this panel's highlight and causal trace along with it.
+    fireEvent.click(screen.getByText("jump elsewhere"));
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByText(/no originating tool call recorded/i)).not.toBeInTheDocument();
   });
 });

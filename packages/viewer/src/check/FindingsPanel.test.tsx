@@ -1,5 +1,6 @@
 import type { CheckReport, RetraceEvent } from "retrace-core/browser";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { FindingsPanel } from "./FindingsPanel.js";
 import { ReplayProvider, useReplay } from "../replay/ReplayContext.js";
@@ -37,10 +38,21 @@ function CurrentSeq() {
   return <span data-testid="seq">{currentSeq}</span>;
 }
 
-function renderPanel(r: CheckReport, fixtureEvents: RetraceEvent[] = events) {
+/** Simulates something *other* than this panel moving the shared replay cursor — a click elsewhere in the sidebar, a timeline row, a replay-control step. */
+function JumpElsewhere({ seq }: { seq: number }) {
+  const { setCurrentSeq } = useReplay();
+  return (
+    <button type="button" onClick={() => setCurrentSeq(seq)}>
+      jump elsewhere
+    </button>
+  );
+}
+
+function renderPanel(r: CheckReport, fixtureEvents: RetraceEvent[] = events, extra?: ReactNode) {
   return render(
     <ReplayProvider maxSeq={10}>
       <CurrentSeq />
+      {extra}
       <FindingsPanel report={r} events={fixtureEvents} />
     </ReplayProvider>,
   );
@@ -178,6 +190,28 @@ describe("FindingsPanel", () => {
     // The empty-state "no findings" line and the skipped section can coexist —
     // a skipped rule must never be silently folded into "clean".
     expect(screen.getByText(/no findings/i)).toBeInTheDocument();
+  });
+
+  it("clears the selection when the replay cursor moves elsewhere", () => {
+    renderPanel(
+      report({
+        findings: [{ ruleId: "unaddressed-error", severity: "high", title: "Bash failed", seq: 1 }],
+      }),
+      events,
+      <JumpElsewhere seq={0} />,
+    );
+
+    const button = screen.getByText("Bash failed").closest("button")!;
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(document.querySelector(".finding-detail")).toBeInTheDocument();
+
+    // Something else (a Failure, a timeline row, a replay-control step) —
+    // anything that moves the shared cursor away from this finding's own
+    // seq — must clear this panel's highlight and detail along with it.
+    fireEvent.click(screen.getByText("jump elsewhere"));
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    expect(document.querySelector(".finding-detail")).not.toBeInTheDocument();
   });
 
   it("is keyboard accessible: findings are focusable, activatable buttons", () => {

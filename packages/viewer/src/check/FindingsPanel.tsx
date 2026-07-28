@@ -19,7 +19,7 @@ function findingKey(finding: CheckFinding): string {
  * finding anchors to a tool call) below the list.
  */
 export function FindingsPanel({ report, events }: { report: CheckReport; events: RetraceEvent[] }) {
-  const { setCurrentSeq } = useReplay();
+  const { currentSeq, setCurrentSeq } = useReplay();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   function jump(finding: CheckFinding) {
@@ -27,7 +27,10 @@ export function FindingsPanel({ report, events }: { report: CheckReport; events:
     setSelectedKey(findingKey(finding));
   }
 
-  const selected = report.findings.find((finding) => findingKey(finding) === selectedKey) ?? null;
+  const selected =
+    report.findings.find(
+      (finding) => findingKey(finding) === selectedKey && finding.seq === currentSeq,
+    ) ?? null;
 
   return (
     <div className="findings-panel">
@@ -46,10 +49,10 @@ export function FindingsPanel({ report, events }: { report: CheckReport; events:
                     <button
                       type="button"
                       className={`finding-item finding-${finding.severity}${
-                        findingKey(finding) === selectedKey ? " active" : ""
+                        finding === selected ? " active" : ""
                       }`}
                       onClick={() => jump(finding)}
-                      aria-pressed={findingKey(finding) === selectedKey}
+                      aria-pressed={finding === selected}
                     >
                       <span className={`badge badge-severity-${finding.severity}`}>{finding.severity}</span>
                       <span className="finding-rule">{finding.ruleId}</span>

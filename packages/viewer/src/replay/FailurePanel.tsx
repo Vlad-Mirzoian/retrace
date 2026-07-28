@@ -10,7 +10,7 @@ import { useReplay } from "./ReplayContext.js";
  * failure-detection logic here.
  */
 export function FailurePanel({ events }: { events: RetraceEvent[] }) {
-  const { setCurrentSeq } = useReplay();
+  const { currentSeq, setCurrentSeq } = useReplay();
   const navIndex = useMemo(() => buildNavIndex(events), [events]);
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null);
 
@@ -30,6 +30,12 @@ export function FailurePanel({ events }: { events: RetraceEvent[] }) {
     setSelectedSeq(seq);
   }
 
+  // Gated on the shared replay cursor, not just our own last click — see
+  // FindingsPanel's matching comment. Selecting a Finding (or anything else
+  // that moves the cursor) clears this panel's own highlight/detail instead
+  // of leaving it stuck showing whatever failure was clicked here last.
+  const selected = selectedSeq !== null && selectedSeq === currentSeq ? selectedSeq : null;
+
   return (
     <div className="failure-panel">
       <button type="button" className="failure-jump-first" onClick={() => jump(failures[0].seq)}>
@@ -40,9 +46,9 @@ export function FailurePanel({ events }: { events: RetraceEvent[] }) {
           <li key={event.seq}>
             <button
               type="button"
-              className={`failure-item${event.seq === selectedSeq ? " active" : ""}`}
+              className={`failure-item${event.seq === selected ? " active" : ""}`}
               onClick={() => jump(event.seq)}
-              aria-pressed={event.seq === selectedSeq}
+              aria-pressed={event.seq === selected}
             >
               <span className="badge badge-error">seq {event.seq}</span>
               <span className="failure-summary">{summarize(event)}</span>
@@ -50,7 +56,7 @@ export function FailurePanel({ events }: { events: RetraceEvent[] }) {
           </li>
         ))}
       </ul>
-      {selectedSeq !== null && <CausalTrace events={events} seq={selectedSeq} />}
+      {selected !== null && <CausalTrace events={events} seq={selected} />}
     </div>
   );
 }
