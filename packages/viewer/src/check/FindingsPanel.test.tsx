@@ -48,6 +48,19 @@ function JumpElsewhere({ seq }: { seq: number }) {
   );
 }
 
+/** Starts autoplay and shows whether it's still running, so a test can assert a finding click stops it. */
+function PlaybackToggle() {
+  const { playing, setPlaying } = useReplay();
+  return (
+    <>
+      <span data-testid="playing">{String(playing)}</span>
+      <button type="button" onClick={() => setPlaying(true)}>
+        play
+      </button>
+    </>
+  );
+}
+
 function renderPanel(r: CheckReport, fixtureEvents: RetraceEvent[] = events, extra?: ReactNode) {
   return render(
     <ReplayProvider maxSeq={10}>
@@ -212,6 +225,22 @@ describe("FindingsPanel", () => {
     fireEvent.click(screen.getByText("jump elsewhere"));
     expect(button).toHaveAttribute("aria-pressed", "false");
     expect(document.querySelector(".finding-detail")).not.toBeInTheDocument();
+  });
+
+  it("pauses autoplay when a finding is clicked", () => {
+    renderPanel(
+      report({
+        findings: [{ ruleId: "unaddressed-error", severity: "high", title: "Bash failed", seq: 1 }],
+      }),
+      events,
+      <PlaybackToggle />,
+    );
+
+    fireEvent.click(screen.getByText("play"));
+    expect(screen.getByTestId("playing")).toHaveTextContent("true");
+
+    fireEvent.click(screen.getByText("Bash failed"));
+    expect(screen.getByTestId("playing")).toHaveTextContent("false");
   });
 
   it("is keyboard accessible: findings are focusable, activatable buttons", () => {

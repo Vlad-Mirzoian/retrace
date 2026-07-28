@@ -1,5 +1,5 @@
 import type { RetraceEvent, SessionRow } from "retrace-core/browser";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -233,6 +233,34 @@ describe("SessionDetailPage", () => {
     // failure instead — only the failure's causal trace remains.
     expect(screen.queryByText(/no preceding Read tool call/i)).not.toBeInTheDocument();
     expect(screen.getByText(/why did this happen/i)).toBeInTheDocument();
+  });
+
+  it("pauses autoplay when a timeline row is clicked", async () => {
+    vi.mocked(client.getSession).mockResolvedValue(session);
+    vi.mocked(client.getAllEvents).mockResolvedValue(events);
+
+    renderAtSession("sess-1");
+    await screen.findByText("please fix the login bug");
+
+    await userEvent.click(screen.getByRole("button", { name: "Play" }));
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("please fix the login bug"));
+    expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
+  });
+
+  it("pauses autoplay on a manual scroll (wheel)", async () => {
+    vi.mocked(client.getSession).mockResolvedValue(session);
+    vi.mocked(client.getAllEvents).mockResolvedValue(events);
+
+    renderAtSession("sess-1");
+    await screen.findByText("please fix the login bug");
+
+    await userEvent.click(screen.getByRole("button", { name: "Play" }));
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+
+    fireEvent.wheel(window);
+    expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
   });
 
   it("re-enables the Errors chip when jumping to a failure the filter is currently hiding", async () => {

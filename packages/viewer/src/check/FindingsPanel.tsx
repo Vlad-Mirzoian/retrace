@@ -19,10 +19,14 @@ function findingKey(finding: CheckFinding): string {
  * finding anchors to a tool call) below the list.
  */
 export function FindingsPanel({ report, events }: { report: CheckReport; events: RetraceEvent[] }) {
-  const { currentSeq, setCurrentSeq } = useReplay();
+  const { currentSeq, setCurrentSeq, setPlaying } = useReplay();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   function jump(finding: CheckFinding) {
+    // A manual pick, same as a replay-control seek — must not have the next
+    // autoplay tick immediately carry the cursor away from what was just
+    // selected.
+    setPlaying(false);
     setCurrentSeq(finding.seq);
     setSelectedKey(findingKey(finding));
   }

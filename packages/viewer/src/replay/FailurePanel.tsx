@@ -10,7 +10,7 @@ import { useReplay } from "./ReplayContext.js";
  * failure-detection logic here.
  */
 export function FailurePanel({ events }: { events: RetraceEvent[] }) {
-  const { currentSeq, setCurrentSeq } = useReplay();
+  const { currentSeq, setCurrentSeq, setPlaying } = useReplay();
   const navIndex = useMemo(() => buildNavIndex(events), [events]);
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null);
 
@@ -26,6 +26,10 @@ export function FailurePanel({ events }: { events: RetraceEvent[] }) {
   }
 
   function jump(seq: number) {
+    // A manual pick, same as a replay-control seek — must not have the next
+    // autoplay tick immediately carry the cursor away from what was just
+    // selected.
+    setPlaying(false);
     setCurrentSeq(seq);
     setSelectedSeq(seq);
   }

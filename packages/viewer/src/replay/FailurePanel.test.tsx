@@ -39,6 +39,19 @@ function JumpElsewhere({ seq }: { seq: number }) {
   );
 }
 
+/** Starts autoplay and shows whether it's still running, so a test can assert a failure click stops it. */
+function PlaybackToggle() {
+  const { playing, setPlaying } = useReplay();
+  return (
+    <>
+      <span data-testid="playing">{String(playing)}</span>
+      <button type="button" onClick={() => setPlaying(true)}>
+        play
+      </button>
+    </>
+  );
+}
+
 function renderPanel(fixture: RetraceEvent[] = events, extra?: ReactNode) {
   render(
     <ReplayProvider maxSeq={3}>
@@ -95,6 +108,16 @@ describe("FailurePanel", () => {
   it("does not show a causal trace before any failure is selected", () => {
     renderPanel();
     expect(screen.queryByText(/why did this happen/i)).not.toBeInTheDocument();
+  });
+
+  it("pauses autoplay when a failure is clicked", () => {
+    renderPanel(events, <PlaybackToggle />);
+
+    fireEvent.click(screen.getByText("play"));
+    expect(screen.getByTestId("playing")).toHaveTextContent("true");
+
+    fireEvent.click(screen.getByText("top-level failure"));
+    expect(screen.getByTestId("playing")).toHaveTextContent("false");
   });
 
   it("clears the selection when the replay cursor moves elsewhere", () => {

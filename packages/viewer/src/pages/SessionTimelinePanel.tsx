@@ -1,6 +1,7 @@
 import type { RetraceEvent } from "retrace-core/browser";
 import { useEffect, useMemo, useState } from "react";
 import { useReplay } from "../replay/ReplayContext.js";
+import { usePauseOnScroll } from "../replay/usePauseOnScroll.js";
 import { usePlayback } from "../replay/usePlayback.js";
 import {
   ALL_FILTER_KINDS,
@@ -41,8 +42,17 @@ export function SessionTimelinePanel({ events }: { events: RetraceEvent[] }) {
     [groupedItems, activeKinds, search],
   );
 
-  const { currentSeq, setCurrentSeq } = useReplay();
+  const { currentSeq, setCurrentSeq, setPlaying } = useReplay();
   usePlayback(filteredItems);
+  usePauseOnScroll();
+
+  // Clicking a specific row is a manual navigation, same as a replay-control
+  // seek or a Findings/Failures click — it should stop auto-play rather than
+  // have the next tick immediately override where the user just jumped to.
+  function selectSeq(seq: number) {
+    setPlaying(false);
+    setCurrentSeq(seq);
+  }
 
   // A jump to a specific seq (a failure-panel click, a next-error/next-file
   // button — anything that navigates by seq rather than by visible row) can
@@ -72,7 +82,7 @@ export function SessionTimelinePanel({ events }: { events: RetraceEvent[] }) {
         shown={countEvents(filteredItems)}
         total={events.length}
       />
-      <Timeline items={filteredItems} currentSeq={currentSeq} onSelect={setCurrentSeq} />
+      <Timeline items={filteredItems} currentSeq={currentSeq} onSelect={selectSeq} />
     </>
   );
 }
