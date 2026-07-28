@@ -195,7 +195,7 @@ describe("Timeline", () => {
 
       rerender(<Timeline items={items} currentSeq={second.seq} />);
       expect(scrollToIndex).toHaveBeenCalledWith(
-        expect.objectContaining({ index: 1, behavior: "smooth" }),
+        expect.objectContaining({ index: 1, behavior: "auto" }),
       );
     });
 

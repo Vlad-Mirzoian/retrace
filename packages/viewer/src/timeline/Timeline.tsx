@@ -138,7 +138,7 @@ export function Timeline({
     if (currentSeq === undefined) return;
     const index = indexForSeq(itemsRef.current, currentSeq);
     if (index >= 0) {
-      virtuosoRef.current?.scrollToIndex({ index, align: "center", behavior: "smooth" });
+      virtuosoRef.current?.scrollToIndex({ index, align: "center", behavior: "auto" });
     }
     // Deliberately just `[currentSeq]`: toggling a filter changes `items`
     // (and remounts Virtuoso below) without moving the cursor, and that must
@@ -159,12 +159,6 @@ export function Timeline({
 
   return (
     <Virtuoso
-      // Filtering can shrink `items` between renders. Virtuoso's internal
-      // range tracking doesn't reliably re-clamp to a shorter list on its own
-      // (most visible without a real ResizeObserver, e.g. under jsdom in
-      // tests) and ends up indexing past the new end. Keying on the count
-      // forces a clean remount whenever the visible set changes size, so
-      // there's never stale range state to index out of bounds against.
       key={items.length}
       ref={virtuosoRef}
       useWindowScroll
