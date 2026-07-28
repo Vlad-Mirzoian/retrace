@@ -1,0 +1,54 @@
+{
+  "meta": {
+    "generatedAt": "2026-07-28T23:04:29.165Z",
+    "source": "cli",
+    "home": "C:\\Users\\wande\\.retrace"
+  },
+  "sessionsChecked": 67,
+  "sessionsWithFinding": 57,
+  "sessionsClean": 10,
+  "totalFindings": 195,
+  "findingsPerSession": {
+    "mean": 2.91044776119403,
+    "median": 3,
+    "max": 7
+  },
+  "ruleSeverityMatrix": {
+    "untracked-bash-mutation": {
+      "high": 0,
+      "medium": 136,
+      "low": 0,
+      "total": 136
+    },
+    "unverified-test-claim": {
+      "high": 0,
+      "medium": 0,
+      "low": 18,
+      "total": 18
+    },
+    "claimed-change-missing": {
+      "high": 0,
+      "medium": 0,
+      "low": 18,
+      "total": 18
+    },
+    "unaddressed-error": {
+      "high": 0,
+      "medium": 15,
+      "low": 0,
+      "total": 15
+    },
+    "edit-without-read": {
+      "high": 0,
+      "medium": 8,
+      "low": 0,
+      "total": 8
+    }
+  },
+  "breaches": {
+    "high": 0,
+    "medium": 57,
+    "low": 57
+  },
+  "rulesSkipped": {}
+}
