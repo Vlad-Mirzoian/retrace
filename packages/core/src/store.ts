@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { ContentStore } from "./cas.js";
 import { sealEvent } from "./chain.js";
 import { deflatePayload, inflateEvent } from "./offload.js";
+import type { SessionCommitLink } from "./link.js";
 import {
   RETRACE_SCHEMA_VERSION,
   RetraceEvent,
@@ -90,6 +91,10 @@ export class RetraceStore {
   private readonly deleteImportStateBySession: StatementSync;
   private readonly selectSessionIdsByPrefix: StatementSync;
   private readonly selectAllImportedSessionIds: StatementSync;
+  private readonly upsertSessionCommit: StatementSync;
+  private readonly selectCommitsForSession: StatementSync;
+  private readonly selectSessionsForCommit: StatementSync;
+  private readonly deleteSessionCommitsBySession: StatementSync;
 
   constructor(homeDir: string = retraceHome()) {
     this.homeDir = homeDir;
@@ -168,6 +173,31 @@ export class RetraceStore {
     this.selectAllImportedSessionIds = this.db.prepare(
       `SELECT DISTINCT session_id FROM import_state WHERE session_id IS NOT NULL`,
     );
+    // Confidence only ever strengthens on re-link: once a link has been
+    // recorded 'exact', a later run that only recomputes 'inferred' (e.g. a
+    // narrower --grace, or fewer candidates in range) does not downgrade it.
+    this.upsertSessionCommit = this.db.prepare(
+      `INSERT INTO session_commits (session_id, commit_sha, repo_root, confidence, linked_at)
+       VALUES (@sessionId, @commitSha, @repoRoot, @confidence, @linkedAt)
+       ON CONFLICT(session_id, commit_sha) DO UPDATE SET
+         repo_root = excluded.repo_root,
+         confidence = CASE
+           WHEN excluded.confidence = 'exact' OR session_commits.confidence = 'exact' THEN 'exact'
+           ELSE excluded.confidence
+         END,
+         linked_at = excluded.linked_at`,
+    );
+    this.selectCommitsForSession = this.db.prepare(
+      `SELECT session_id, commit_sha, repo_root, confidence, linked_at
+       FROM session_commits WHERE session_id = ? ORDER BY linked_at`,
+    );
+    this.selectSessionsForCommit = this.db.prepare(
+      `SELECT session_id, commit_sha, repo_root, confidence, linked_at
+       FROM session_commits WHERE commit_sha = ? ORDER BY linked_at`,
+    );
+    this.deleteSessionCommitsBySession = this.db.prepare(
+      `DELETE FROM session_commits WHERE session_id = ?`,
+    );
   }
 
   private migrate(): void {
@@ -211,6 +241,16 @@ export class RetraceStore {
         mtime_ms   REAL NOT NULL,
         last_line  INTEGER NOT NULL DEFAULT 0
       );
+
+      CREATE TABLE IF NOT EXISTS session_commits (
+        session_id  TEXT NOT NULL,
+        commit_sha  TEXT NOT NULL,
+        repo_root   TEXT,
+        confidence  TEXT NOT NULL,   -- 'exact' | 'inferred'
+        linked_at   TEXT NOT NULL,
+        PRIMARY KEY (session_id, commit_sha)
+      );
+      CREATE INDEX IF NOT EXISTS session_commits_sha ON session_commits (commit_sha);
     `);
   }
 
@@ -414,6 +454,7 @@ export class RetraceStore {
 
     this.deleteSessionEvents.run(sessionId);
     this.deleteImportStateBySession.run(sessionId);
+    this.deleteSessionCommitsBySession.run(sessionId);
     this.deleteSessionRow.run(sessionId);
     this.chainState.delete(sessionId);
 
@@ -436,6 +477,41 @@ export class RetraceStore {
     return asRow<{ session_id: string }[]>(this.selectAllImportedSessionIds.all()).map(
       (row) => row.session_id,
     );
+  }
+
+  /**
+   * Record that a session produced a commit (or vice versa). Upsert: linking
+   * the same (sessionId, commitSha) pair again updates `repoRoot`/`linkedAt`
+   * and only ever strengthens `confidence`, never weakens it (see the
+   * prepared statement's `ON CONFLICT` in the constructor).
+   */
+  linkCommit(link: SessionCommitLink): void {
+    this.upsertSessionCommit.run({
+      sessionId: link.sessionId,
+      commitSha: link.commitSha,
+      repoRoot: bind(link.repoRoot),
+      confidence: link.confidence,
+      linkedAt: link.linkedAt,
+    });
+  }
+
+  /** Every commit linked to this session, oldest link first. */
+  commitsForSession(sessionId: string): SessionCommitLink[] {
+    return asRow<SessionCommitLinkRow[]>(this.selectCommitsForSession.all(sessionId)).map(
+      toSessionCommitLink,
+    );
+  }
+
+  /** Every session linked to this commit, oldest link first — usually one, but a commit can plausibly be the work of more than one recorded session. */
+  sessionsForCommit(sha: string): SessionCommitLink[] {
+    return asRow<SessionCommitLinkRow[]>(this.selectSessionsForCommit.all(sha)).map(
+      toSessionCommitLink,
+    );
+  }
+
+  /** Remove every commit link recorded for a session, without touching the session itself. */
+  unlinkSession(sessionId: string): void {
+    this.deleteSessionCommitsBySession.run(sessionId);
   }
 
   /**
@@ -484,5 +560,23 @@ function toSessionRow(row: SessionRowSql): SessionRow {
     endedAt: row.ended_at,
     eventCount: row.event_count,
     toolCallCount: row.tool_call_count,
+  };
+}
+
+interface SessionCommitLinkRow {
+  session_id: string;
+  commit_sha: string;
+  repo_root: string | null;
+  confidence: string;
+  linked_at: string;
+}
+
+function toSessionCommitLink(row: SessionCommitLinkRow): SessionCommitLink {
+  return {
+    sessionId: row.session_id,
+    commitSha: row.commit_sha,
+    repoRoot: row.repo_root,
+    confidence: row.confidence as SessionCommitLink["confidence"],
+    linkedAt: row.linked_at,
   };
 }

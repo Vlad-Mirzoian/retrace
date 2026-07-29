@@ -15,6 +15,7 @@ import type { CheckAllSummary, CheckSessionResult } from "./commands/check.js";
 import type { CompareOptions } from "./commands/compare.js";
 import type { DeleteSessionsSummary } from "./commands/delete.js";
 import type { ResetResult } from "./commands/reset.js";
+import type { LinkAllSummary, LinkCommandOptions, LinkSessionResult } from "./commands/link.js";
 import { confirm } from "./confirm.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -36,6 +37,7 @@ const lazy = {
   check: () => import("./commands/check.js"),
   delete: () => import("./commands/delete.js"),
   reset: () => import("./commands/reset.js"),
+  link: () => import("./commands/link.js"),
 };
 
 export interface ProgramDeps {
@@ -72,6 +74,12 @@ export interface ProgramDeps {
   ) => Promise<UiHandle>;
   deleteSessions?: (store: RetraceStore, idsOrPrefixes: string[]) => DeleteSessionsSummary;
   resetStore?: (store: RetraceStore) => ResetResult;
+  linkSession?: (
+    store: RetraceStore,
+    idOrPrefix: string,
+    options?: LinkCommandOptions,
+  ) => LinkSessionResult;
+  linkAll?: (store: RetraceStore, options?: LinkCommandOptions) => LinkAllSummary;
   /** Yes/no prompt for `delete`/`reset` when `--yes` isn't given. Injectable so tests never block on real stdin. */
   confirm?: (question: string) => Promise<boolean>;
   /** Absolute path to the embedded viewer build; passed by cli.ts (see server/app.ts). */
@@ -124,6 +132,13 @@ interface CheckCommandOptions {
 
 interface YesOption {
   yes?: boolean;
+}
+
+interface LinkCliOptions {
+  all?: boolean;
+  repo?: string;
+  grace?: string;
+  json?: boolean;
 }
 
 const FAIL_ON_VALUES = ["high", "medium", "low", "never"] as const;
@@ -194,6 +209,17 @@ function formatVerifyResult(result: VerifyResult): string {
     return `✓ ${result.sessionId}: verified (${result.eventCount} event(s))`;
   }
   return `✗ ${result.sessionId}: tampered at seq ${result.verification.index} — ${result.verification.reason}`;
+}
+
+function formatLinkResult(result: LinkSessionResult): string {
+  if (result.links.length === 0) {
+    return `${result.sessionId}: no commits linked (repo: ${result.repoRoot})`;
+  }
+  const lines = [`${result.sessionId}: linked ${result.links.length} commit(s) (repo: ${result.repoRoot})`];
+  for (const link of result.links) {
+    lines.push(`  ${link.commitSha.slice(0, 10)}  ${link.confidence}`);
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -577,6 +603,54 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       const resetStore = deps.resetStore ?? (await lazy.reset()).resetStore;
       const result = resetStore(store);
       console.log(`Deleted ${result.sessionCount} session(s) and removed ${result.homeDir}.`);
+    });
+
+  program
+    .command("link [sessionId]")
+    .description("Link a session to the git commit(s) it plausibly produced")
+    .option("--all", "link every recorded session")
+    .option("--repo <dir>", "override the git repository directory (default: the session's recorded cwd)")
+    .option("--grace <minutes>", "how long after a session ends a commit still counts as its work (default: 30)")
+    .option("--json", "emit the raw link result(s) as JSON")
+    .action(async (sessionId: string | undefined, opts: LinkCliOptions) => {
+      const mod = await lazy.link();
+      const linkSession = deps.linkSession ?? mod.linkSession;
+      const linkAll = deps.linkAll ?? mod.linkAll;
+      const linkOptions: LinkCommandOptions = {
+        repoDir: opts.repo,
+        graceMinutes: opts.grace !== undefined ? Number(opts.grace) : undefined,
+      };
+
+      const store = createStore();
+      try {
+        if (opts.all) {
+          const { results, skipped } = linkAll(store, linkOptions);
+          if (opts.json) {
+            console.log(JSON.stringify(results));
+          } else {
+            for (const result of results) console.log(formatLinkResult(result));
+            if (skipped.length > 0) {
+              console.log(`\nSkipped ${skipped.length} session(s):`);
+              for (const s of skipped) console.log(`  ${s.sessionId}: ${s.reason}`);
+            }
+          }
+          return;
+        }
+
+        if (!sessionId) {
+          console.error("Provide a sessionId, or use --all to link every session.");
+          process.exitCode = 1;
+          return;
+        }
+
+        const result = linkSession(store, sessionId, linkOptions);
+        console.log(opts.json ? JSON.stringify(result) : formatLinkResult(result));
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 2;
+      } finally {
+        store.close();
+      }
     });
 
   return program;

@@ -107,6 +107,7 @@ controls that machine can recompute it. External anchoring, which would change t
 | `retrace compare <sessionIdA> <sessionIdB> [--port <port>] [--no-open]` | Open the viewer's side-by-side comparison of two recorded sessions — aligned event-by-event, plus a diff of each run's final working tree. |
 | `retrace delete <sessionId...> [--yes]` | Permanently delete one or more sessions (their events and on-disk data). Prompts for confirmation unless `--yes` is given. CAS snapshots aren't reclaimed — that needs `retrace reset`. |
 | `retrace reset [--yes]` | Permanently wipe the entire store — every session and every CAS object, all of `~/.retrace` (or `$RETRACE_HOME`). Prompts for confirmation unless `--yes` is given. |
+| `retrace link [sessionId] [--all] [--repo <dir>] [--grace <minutes>] [--json]` | Link a session to the git commit(s) it plausibly produced — inferred from repo, timing, and touched-file overlap, never written to the commit itself. `--repo` overrides the session's recorded working directory; `--grace` (default 30) is how many minutes after a session ends a commit still counts as its work. |
 | `retrace hook` | Internal: invoked by the hooks `retrace init` installs, reading a Claude Code hook payload from stdin. Not meant to be run by hand. |
 
 ## How it works
