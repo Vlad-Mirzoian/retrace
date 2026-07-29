@@ -769,7 +769,15 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       const publishReportNote = deps.publishReportNote ?? mod.publishReportNote;
       const checkOptions: CheckOptions = opts.disable ? { disabled: opts.disable } : {};
 
-      const store = createStore();
+      let store: RetraceStore;
+      try {
+        store = createStore();
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 2;
+        return;
+      }
+
       try {
         const result = generateReport(store, process.cwd(), {
           base: opts.base,

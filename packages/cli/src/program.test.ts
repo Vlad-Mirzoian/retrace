@@ -943,6 +943,26 @@ describe("createProgram — report", () => {
     process.exitCode = 0;
   });
 
+  it("exits 2 with a clear message, not exit 1 from an uncaught exception, when the store can't be opened", async () => {
+    const generateReport = vi.fn();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram({
+      createStore: () => {
+        throw new Error("unable to open database file");
+      },
+      generateReport,
+    });
+    await program.parseAsync(["node", "retrace", "report"]);
+
+    expect(generateReport).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(2);
+    expect(errorSpy.mock.calls.join("\n")).toMatch(/unable to open database file/);
+
+    errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
+
   describe("--read", () => {
     it("prints a stored report and applies the same exit-code contract", async () => {
       const withHigh = report([
