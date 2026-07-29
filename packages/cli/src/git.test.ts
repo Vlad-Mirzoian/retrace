@@ -3,7 +3,18 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { commitsInRange, listCommits, repoRoot } from "./git.js";
+import {
+  commitsInRange,
+  defaultBranch,
+  fetchNotes,
+  listCommits,
+  mergeBase,
+  pushNotes,
+  readNote,
+  repoRoot,
+  resolveSha,
+  writeNote,
+} from "./git.js";
 
 let dir: string;
 
@@ -105,5 +116,86 @@ describe("listCommits / commitsInRange", () => {
 
     const commits = listCommits(dir, { since: future });
     expect(commits).toEqual([]);
+  });
+});
+
+describe("resolveSha", () => {
+  it("resolves HEAD to the current commit's full sha", async () => {
+    const sha = await commitFile("a.txt", "one", "first");
+    expect(resolveSha(dir, "HEAD")).toBe(sha);
+  });
+});
+
+describe("mergeBase", () => {
+  it("finds the common ancestor of two diverged branches", async () => {
+    const base = await commitFile("a.txt", "one", "first");
+    // Don't assume "main" vs "master" — `git init`'s default branch name
+    // depends on the local git config, so read whatever it actually is.
+    const trunk = git(["symbolic-ref", "--short", "HEAD"]);
+    git(["checkout", "-b", "feature"]);
+    await commitFile("b.txt", "two", "on feature");
+    git(["checkout", trunk, "-q"]);
+
+    expect(mergeBase(dir, trunk, "feature")).toBe(base);
+  });
+
+  it("returns undefined when a ref does not resolve", () => {
+    expect(mergeBase(dir, "does-not-exist", "HEAD")).toBeUndefined();
+  });
+});
+
+describe("defaultBranch", () => {
+  it("returns undefined when there is no origin remote", async () => {
+    await commitFile("a.txt", "one", "first");
+    expect(defaultBranch(dir)).toBeUndefined();
+  });
+});
+
+describe("notes", () => {
+  it("readNote returns undefined when no note exists for a sha", async () => {
+    const sha = await commitFile("a.txt", "one", "first");
+    expect(readNote(dir, "retrace", sha)).toBeUndefined();
+  });
+
+  it("writeNote then readNote round-trips the body, including a large one", async () => {
+    const sha = await commitFile("a.txt", "one", "first");
+    const body = JSON.stringify({ hello: "world", padding: "x".repeat(5000) });
+
+    writeNote(dir, "retrace", sha, body);
+    expect(readNote(dir, "retrace", sha)).toBe(body);
+  });
+
+  it("writeNote with -f overwrites a previous note for the same sha", async () => {
+    const sha = await commitFile("a.txt", "one", "first");
+    writeNote(dir, "retrace", sha, "first body");
+    writeNote(dir, "retrace", sha, "second body");
+    expect(readNote(dir, "retrace", sha)).toBe("second body");
+  });
+
+  it("pushNotes then fetchNotes carries a note to another clone of the same repo", async () => {
+    // A bare repo as the "remote", and a second clone as the "CI runner" —
+    // this is the exact push/fetch round trip retrace report --publish and
+    // the Action depend on.
+    const remoteDir = await mkdtemp(join(tmpdir(), "retrace-git-remote-"));
+    const ciDir = await mkdtemp(join(tmpdir(), "retrace-git-ci-"));
+    try {
+      execFileSync("git", ["init", "-q", "--bare", remoteDir]);
+      git(["remote", "add", "origin", remoteDir]);
+
+      const sha = await commitFile("a.txt", "one", "first");
+      git(["push", "-q", "origin", "HEAD:refs/heads/master"]);
+      writeNote(dir, "retrace", sha, "pushed body");
+
+      pushNotes(dir, "origin", "retrace");
+
+      execFileSync("git", ["clone", "-q", remoteDir, ciDir]);
+      expect(readNote(ciDir, "retrace", sha)).toBeUndefined(); // notes aren't cloned by default
+
+      fetchNotes(ciDir, "origin", "retrace");
+      expect(readNote(ciDir, "retrace", sha)).toBe("pushed body");
+    } finally {
+      await rm(remoteDir, { recursive: true, force: true });
+      await rm(ciDir, { recursive: true, force: true });
+    }
   });
 });

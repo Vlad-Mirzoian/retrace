@@ -108,6 +108,7 @@ controls that machine can recompute it. External anchoring, which would change t
 | `retrace delete <sessionId...> [--yes]` | Permanently delete one or more sessions (their events and on-disk data). Prompts for confirmation unless `--yes` is given. CAS snapshots aren't reclaimed — that needs `retrace reset`. |
 | `retrace reset [--yes]` | Permanently wipe the entire store — every session and every CAS object, all of `~/.retrace` (or `$RETRACE_HOME`). Prompts for confirmation unless `--yes` is given. |
 | `retrace link [sessionId] [--all] [--repo <dir>] [--grace <minutes>] [--json]` | Link a session to the git commit(s) it plausibly produced — inferred from repo, timing, and touched-file overlap, never written to the commit itself. `--repo` overrides the session's recorded working directory; `--grace` (default 30) is how many minutes after a session ends a commit still counts as its work. |
+| `retrace report [--base <ref>] [--head <ref>] [--output <path>] [--publish] [--remote <name>] [--fail-on <severity>] [--disable <ruleId...>] [--json] [--read <sha>]` | Assemble a portable findings report for a commit range (default: merge-base with the default branch, or `HEAD~1`, through `HEAD`) and write it as a git note on the head commit — see [Getting the report to CI](#getting-the-report-to-ci) below. `--output` writes a file instead of a note; `--publish` also pushes the note; `--read <sha>` prints back a stored note instead of generating one (what CI uses — it never has a store to check against). Same exit-code contract as `retrace check`. |
 | `retrace hook` | Internal: invoked by the hooks `retrace init` installs, reading a Claude Code hook payload from stdin. Not meant to be run by hand. |
 
 ## How it works
@@ -137,6 +138,39 @@ reasoning — so any body over 8 KB is moved into the content-addressed store an
 which also collapses repeats (the same file read twice) to a single object. Reads restore it
 transparently, and because the hash is taken over the real body rather than the reference, swapping
 a stored object out still breaks verification.
+
+## Getting the report to CI
+
+CI has no access to `~/.retrace` — there is no store on the runner, and there never will be. So
+`retrace report` writes its findings to **`refs/notes/retrace`**, keyed by the head commit's SHA. Notes
+live outside the commit object, so they survive rebase, squash, amend, and cherry-pick, and they never
+touch the commit message.
+
+**The catch, stated plainly: git does not push or fetch notes by default.** This is real friction, and
+mitigating it is most of what makes this transport usable at all:
+
+1. `retrace report --publish` pushes the note itself in the same command, so you run one command, not
+   two. Otherwise, push it yourself:
+   ```bash
+   git push origin refs/notes/retrace
+   ```
+   A `post-commit` hook or a git alias is a natural place to automate this — Retrace does not install
+   one for you (`retrace init` already asks for a decent amount of trust by editing your Claude Code
+   settings; reaching into your git hooks on top of that, unasked, is a step further than it should take).
+2. On CI's side, fetch the note before reading it:
+   ```bash
+   git fetch origin refs/notes/retrace:refs/notes/retrace
+   retrace report --read "$(git rev-parse HEAD)"
+   ```
+3. **If your workflow can't or won't push notes**, use the file fallback instead —
+   `retrace report --output report.json` writes the identical JSON to a file you can commit to the
+   branch or upload as a build artifact. This is not a lesser option; if notes prove unworkable in your
+   setup, make the file the norm rather than fighting the transport.
+
+A rebase is worth understanding concretely: the note stays attached to the *original* commit SHA (still
+readable there, as long as that object hasn't been garbage-collected), but the rebase produces a **new**
+SHA that has no note of its own. A report generated before a rebase does not carry forward automatically
+— re-run `retrace report` (and `--publish`, or re-commit the output file) after rebasing.
 
 ## Development
 

@@ -1,5 +1,14 @@
+import { writeFileSync } from "node:fs";
 import { Command } from "commander";
-import { RetraceStore, RULES, type CheckOptions, type CheckReport, type CheckRule, type Severity } from "retrace-core";
+import {
+  RetraceStore,
+  RULES,
+  type CheckOptions,
+  type CheckReport,
+  type CheckRule,
+  type RetraceReport,
+  type Severity,
+} from "retrace-core";
 import type {
   ImportOptions,
   ImportSummary,
@@ -16,6 +25,7 @@ import type { CompareOptions } from "./commands/compare.js";
 import type { DeleteSessionsSummary } from "./commands/delete.js";
 import type { ResetResult } from "./commands/reset.js";
 import type { LinkAllSummary, LinkCommandOptions, LinkSessionResult } from "./commands/link.js";
+import type { GenerateReportOptions, GenerateReportResult } from "./commands/report.js";
 import { confirm } from "./confirm.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -38,6 +48,7 @@ const lazy = {
   delete: () => import("./commands/delete.js"),
   reset: () => import("./commands/reset.js"),
   link: () => import("./commands/link.js"),
+  report: () => import("./commands/report.js"),
 };
 
 export interface ProgramDeps {
@@ -80,6 +91,15 @@ export interface ProgramDeps {
     options?: LinkCommandOptions,
   ) => LinkSessionResult;
   linkAll?: (store: RetraceStore, options?: LinkCommandOptions) => LinkAllSummary;
+  generateReport?: (
+    store: RetraceStore,
+    cwd: string,
+    options?: GenerateReportOptions,
+  ) => GenerateReportResult;
+  writeReportNote?: (repoRoot: string, sha: string, report: RetraceReport) => void;
+  readReportNote?: (repoRoot: string, sha: string) => RetraceReport | undefined;
+  publishReportNote?: (repoRoot: string, remote: string) => void;
+  resolveRepoRoot?: (cwd: string) => string;
   /** Yes/no prompt for `delete`/`reset` when `--yes` isn't given. Injectable so tests never block on real stdin. */
   confirm?: (question: string) => Promise<boolean>;
   /** Absolute path to the embedded viewer build; passed by cli.ts (see server/app.ts). */
@@ -139,6 +159,18 @@ interface LinkCliOptions {
   repo?: string;
   grace?: string;
   json?: boolean;
+}
+
+interface ReportCliOptions {
+  base?: string;
+  head?: string;
+  output?: string;
+  publish?: boolean;
+  remote?: string;
+  failOn?: string;
+  disable?: string[];
+  json?: boolean;
+  read?: string;
 }
 
 const FAIL_ON_VALUES = ["high", "medium", "low", "never"] as const;
@@ -219,6 +251,37 @@ function formatLinkResult(result: LinkSessionResult): string {
   for (const link of result.links) {
     lines.push(`  ${link.commitSha.slice(0, 10)}  ${link.confidence}`);
   }
+  return lines.join("\n");
+}
+
+/** Human-readable rendering of a `RetraceReport` — like `formatCheckReport`, but spanning every session in range, so each line also names which one. */
+function formatReport(report: RetraceReport): string {
+  const lines: string[] = [
+    `Report ${report.range.base ?? "(root)"}..${report.range.head} — ${report.sessions.length} session(s), ${report.findings.length} finding(s)`,
+  ];
+
+  if (report.findings.length === 0) {
+    lines.push("No findings.");
+  } else {
+    const sorted = [...report.findings].sort(
+      (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || a.seq - b.seq,
+    );
+    const severityWidth = Math.max(...sorted.map((f) => f.severity.length));
+    for (const finding of sorted) {
+      const severity = finding.severity.padEnd(severityWidth);
+      const location = finding.repoPath ?? finding.path ?? finding.ruleId;
+      lines.push(`  ${severity}  ${finding.sessionId.slice(0, 10)}  ${location}  ${finding.title}`);
+    }
+  }
+
+  if (report.findingsOmitted) {
+    lines.push(`(${report.findingsOmitted} additional finding(s) omitted — capped at assembly time)`);
+  }
+  if (report.rulesSkipped.length > 0) {
+    lines.push("", "skipped:");
+    for (const skipped of report.rulesSkipped) lines.push(`  ${skipped.ruleId}: ${skipped.reason}`);
+  }
+
   return lines.join("\n");
 }
 
@@ -645,6 +708,95 @@ export function createProgram(deps: ProgramDeps = {}): Command {
 
         const result = linkSession(store, sessionId, linkOptions);
         console.log(opts.json ? JSON.stringify(result) : formatLinkResult(result));
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 2;
+      } finally {
+        store.close();
+      }
+    });
+
+  program
+    .command("report")
+    .description("Assemble a portable findings report for a commit range and write it as a git note")
+    .option("--base <ref>", "base of the commit range (default: merge-base with the default branch, or HEAD~1)")
+    .option("--head <ref>", "head of the commit range", "HEAD")
+    .option("--output <path>", "write the report JSON to a file instead of a git note")
+    .option("--publish", "push the note to --remote after writing it (ignored with --output)")
+    .option("--remote <name>", "remote to push the note to with --publish", "origin")
+    .option(
+      "--fail-on <severity>",
+      "exit non-zero when a finding at or above this severity exists (high|medium|low|never)",
+      "high",
+    )
+    .option("--disable <ruleId...>", "skip specific rules")
+    .option("--json", "print the report as JSON instead of a human-readable summary")
+    .option("--read <sha>", "print the stored report note for <sha> instead of generating a new one")
+    .action(async (opts: ReportCliOptions) => {
+      const failOnRaw = opts.failOn ?? "high";
+      if (!(FAIL_ON_VALUES as readonly string[]).includes(failOnRaw)) {
+        console.error(
+          `Invalid --fail-on value "${failOnRaw}" — expected one of: ${FAIL_ON_VALUES.join(", ")}.`,
+        );
+        process.exitCode = 2;
+        return;
+      }
+      const failOn = failOnRaw as Severity | "never";
+
+      const mod = await lazy.report();
+
+      if (opts.read !== undefined) {
+        try {
+          const resolveRepoRoot = deps.resolveRepoRoot ?? mod.resolveRepoRoot;
+          const readReportNote = deps.readReportNote ?? mod.readReportNote;
+          const root = resolveRepoRoot(process.cwd());
+          const report = readReportNote(root, opts.read);
+          if (!report) {
+            console.log(`No report found for ${opts.read} (ref: retrace).`);
+            return;
+          }
+          console.log(opts.json ? JSON.stringify(report) : formatReport(report));
+          if (mod.reportBreachesThreshold(report, failOn)) process.exitCode = 1;
+        } catch (err) {
+          console.error(err instanceof Error ? err.message : String(err));
+          process.exitCode = 2;
+        }
+        return;
+      }
+
+      const generateReport = deps.generateReport ?? mod.generateReport;
+      const writeReportNote = deps.writeReportNote ?? mod.writeReportNote;
+      const publishReportNote = deps.publishReportNote ?? mod.publishReportNote;
+      const checkOptions: CheckOptions = opts.disable ? { disabled: opts.disable } : {};
+
+      const store = createStore();
+      try {
+        const result = generateReport(store, process.cwd(), {
+          base: opts.base,
+          head: opts.head,
+          checkOptions,
+        });
+
+        if (opts.output) {
+          writeFileSync(opts.output, JSON.stringify(result.report));
+        } else {
+          writeReportNote(result.repoRoot, result.headSha, result.report);
+          if (opts.publish) publishReportNote(result.repoRoot, opts.remote ?? "origin");
+        }
+
+        if (opts.json) {
+          console.log(JSON.stringify(result.report));
+        } else {
+          if (opts.output) {
+            console.log(`Wrote report to ${opts.output}`);
+          } else {
+            console.log(`Wrote report note for ${result.headSha} (ref: retrace)`);
+            if (opts.publish) console.log(`Pushed refs/notes/retrace to ${opts.remote ?? "origin"}`);
+          }
+          console.log(formatReport(result.report));
+        }
+
+        if (mod.reportBreachesThreshold(result.report, failOn)) process.exitCode = 1;
       } catch (err) {
         console.error(err instanceof Error ? err.message : String(err));
         process.exitCode = 2;

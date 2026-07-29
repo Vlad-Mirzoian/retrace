@@ -5,6 +5,24 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- `retrace link [sessionId] [--all] [--repo <dir>] [--grace <minutes>] [--json]` — links a recorded
+  session to the git commit(s) it plausibly produced, inferred from repo containment, a time window,
+  and touched-file overlap. Never writes to the commit, its message, or any git ref; recorded in a new
+  `session_commits` table, queryable via `commitsForSession`/`sessionsForCommit`.
+- `retrace report [--base <ref>] [--head <ref>] [--output <path>] [--publish] [--remote <name>] [--fail-on <severity>] [--disable <ruleId...>] [--json] [--read <sha>]`
+  — the piece that makes the check engine usable in CI, which has no access to `~/.retrace`. Assembles
+  a versioned, self-contained JSON report for a commit range (every linked session's findings, with
+  paths normalized to repo-relative) and writes it to `refs/notes/retrace` on the head commit — the
+  same transport `git-ai` uses for line-level provenance, chosen because notes survive rebase/squash/
+  amend/cherry-pick and never touch the commit message. `--output` writes a plain file instead, for
+  anyone who can't or won't push notes; `--publish` pushes the note in the same command; `--read <sha>`
+  is how CI reads a report back, since it never has a store to regenerate one from. Same exit-code
+  contract as `retrace check` (`0` clean, `1` breaches `--fail-on`, `2` operational failure). See
+  [Getting the report to CI](README.md#getting-the-report-to-ci) in the README for the push/fetch
+  requirement and the file fallback.
+
 ### Changed
 
 - **Breaking (CI-visible):** `unaddressed-error` and `unverified-test-claim` can now report `high`
