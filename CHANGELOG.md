@@ -40,27 +40,43 @@ All notable changes to this project are documented in this file. The format foll
   - No longer matches stderr-to-null or stream-merge redirects (`2>/dev/null`, `2>NUL`, `2>$null`,
     `2>&1`, `>&2`) — previously the single largest source of findings, all false positives, since
     none of these write to a real file.
-  - Resolves and names the actual file a command targets where the command text allows it (85.6% of
-    findings in the measured corpus), instead of only naming the matched shape (`cp`, `sed -i`, ...).
-    Findings whose resolved path lands in an obviously transient location (`node_modules/`, `dist/`,
-    `.git/`, a temp dir, or a `scratch-`-prefixed file — this project's own scratch-file convention)
-    are `low`; shapes that are near-universally housekeeping with no resolvable target (`mkdir`,
+  - Resolves and names the actual file a command targets where the command text allows it, instead of
+    only naming the matched shape (`cp`, `sed -i`, ...) — but never by guessing at an unexpanded shell
+    variable (`$f`, `$RETRACE_HOME`, `$env:TEMP\x`): a variable names whatever it holds at runtime,
+    which this rule has no way to know, so a target that's still a variable reference bails out to no
+    path rather than being reported as a literal filename named `$f`.
+  - Two related parser fixes, both found by spot-checking findings against their sessions by hand:
+    a heredoc body (`cat > file <<'EOF' ... EOF`) is no longer scanned line-by-line for further
+    redirects once the heredoc starts, so an embedded comparison operator in the piped-in script
+    (`if (x > 100000)`, `if count >= 8:`) can no longer be misread as a second shell redirect; and a
+    `#`-comment is stripped before scanning, so descriptive prose above a command (`# ... <tarball>
+    reads ...`) can no longer supply a bogus redirect target either.
+  - Findings whose resolved path lands in an obviously transient location (`node_modules/`, `dist/`,
+    `.git/`, `.retrace/` — this tool's own app-data directory, a temp dir, a `scratch-`-prefixed file,
+    or a TypeScript `*.tsbuildinfo` cache) are `low`, and — unlike a resolved path elsewhere — collapse
+    to one finding per shape per session regardless of how many distinct transient paths were touched,
+    the same as a housekeeping shape with no resolvable target. A non-transient resolved path still
+    gets its own finding per distinct file, since that's what makes the rule usable as a PR annotation
+    (module 06). Shapes that are near-universally housekeeping with no resolvable target (`mkdir`,
     package installs, `git checkout`/`reset`) are also `low`. The rule's main case stays `medium`.
-  - Collapses to one finding per distinct `(shape, resolved file)` pair per session — previously one
-    per shape regardless of how many files it touched — capped at 10 with a trailing summary finding
-    for any remainder, so the rule stays boundable on a PR.
+  - Capped at 10 findings per session with a trailing summary finding for any remainder, so the rule
+    stays boundable on a PR.
   - **Known limitation, measured honestly rather than hidden:** this module's plan targeted
     `untracked-bash-mutation` accounting for under 40% of total findings (down from the original 70%).
-    Against the same 67-session corpus it now accounts for **77.3%** (201/260) — higher, not lower.
-    This isn't the redirect-noise fix failing; excluding null/merge redirects and capping both work as
-    intended, but per-file collapsing is inherently more granular than the old one-finding-per-shape
-    behavior, and this corpus (the author's own history of building Retrace) contains an unusually
-    high number of genuinely distinct untracked shell mutations — ad-hoc scratch files and multi-step
-    manual verification scripts are common in this project's own workflow in a way a typical
-    contributor's PR is unlikely to reproduce. Even capping every session's findings from this rule
-    down to 1 (which would eliminate per-file attribution entirely) only reaches 41.6%. The
-    per-finding quality bar (spot-checked findings name a plausible real file; the redirect exclusion
-    is exact) was prioritized over hitting the percentage target on this specific corpus.
+    Against the same 67-session corpus it now accounts for **71.1%** (145/204) — better than the 77.3%
+    this module regressed to when per-file collapsing first landed, and better than the original 70%
+    baseline, but still not under 40%. This corpus (the author's own history of building Retrace) is
+    unusually shell-mutation-heavy — ad-hoc scratch files and multi-step manual verification scripts
+    are routine in this project's own workflow in a way a typical contributor's PR is unlikely to
+    reproduce — and per-file collapsing (needed for module 06's per-file PR annotations) is inherently
+    more granular than one-finding-per-shape. Collapsing every transient-path finding to one-per-shape
+    (this pass's main lever) recovered most of the regression without giving up per-file attribution
+    for the paths that matter; collapsing everything, including real project files, was rejected
+    because it would defeat the point of resolving a path at all. 63.4% of the rule's findings still
+    carry a resolved path — down from a prior pass's 85.6%, but that figure included roughly a quarter
+    unexpanded shell variables reported as if they were literal filenames (`$f`, `$RETRACE_HOME`); the
+    smaller number is the one that's actually clean, confirmed by hand against ten findings spread
+    across the corpus.
 
 ## [0.3.0] — 2026-07-27
 

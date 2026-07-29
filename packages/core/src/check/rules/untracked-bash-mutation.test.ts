@@ -143,4 +143,74 @@ describe("untracked-bash-mutation", () => {
     expect(findings[0].detail?.length).toBeLessThanOrEqual(120);
     expect(findings[0].detail?.endsWith("…")).toBe(true);
   });
+
+  it("bails out to undefined rather than reporting an unexpanded shell variable as the path", () => {
+    for (const command of ["rm -rf \"$RETRACE_HOME\"", "cp a.ts \"$SCRATCH/out.ts\"", "rm $f"]) {
+      const findings = run([bash("t1", command)]);
+      expect(findings, command).toHaveLength(1);
+      expect(findings[0].path, command).toBeUndefined();
+    }
+  });
+
+  it("does not let a heredoc body's own comparison/arrow operators be read as a further redirect", () => {
+    const command = [
+      "cat > \"$TEMP/find_culprit.js\" <<'EOF'",
+      "const x = 1;",
+      "if (x > 100000) {",
+      "  console.log('big');",
+      "}",
+      "EOF",
+    ].join("\n");
+    const findings = run([bash("t1", command)]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].path).toBeUndefined();
+  });
+
+  it("does not match a command with no redirect at all just because its heredoc body contains one", () => {
+    const command = ["python - <<'PY'", "if count >= 8:", "    break", "PY"].join("\n");
+    expect(run([bash("t1", command)])).toEqual([]);
+  });
+
+  it("does not read a stray > inside a comment as a redirect", () => {
+    const command = [
+      "cd /repo",
+      "# see whether npm publish <tarball> reads the live directory",
+      "ls -la",
+    ].join("\n");
+    expect(run([bash("t1", command)])).toEqual([]);
+  });
+
+  it("does not read a > inside an escaped-quote string as a redirect", () => {
+    const command = "python -c \"s = 'x'.replace('a', '</head>')\"";
+    expect(run([bash("t1", command)])).toEqual([]);
+  });
+
+  it("does not mistake PowerShell's -ErrorAction value for a path", () => {
+    const findings = run([
+      {
+        kind: "tool_call",
+        payload: {
+          toolName: "PowerShell",
+          toolUseId: "t1",
+          input: { command: "Remove-Item $env:TEMP\\a.exe -ErrorAction SilentlyContinue" },
+        },
+      },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].path).toBeUndefined();
+  });
+
+  it("treats a .tsbuildinfo file and the .retrace app-data directory as transient locations", () => {
+    for (const command of ["rm packages/core/tsconfig.tsbuildinfo", "rm -rf /home/user/.retrace/sessions/abc"]) {
+      const findings = run([bash("t1", command)]);
+      expect(findings, command).toHaveLength(1);
+      expect(findings[0].severity, command).toBe("low");
+    }
+  });
+
+  it("collapses two different transient-path findings of the same shape into one, unlike two project-file findings", () => {
+    const findings = run([bash("t1", "rm /tmp/a.log"), bash("t2", "rm /tmp/b.log")]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe("low");
+  });
 });
