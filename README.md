@@ -108,7 +108,7 @@ controls that machine can recompute it. External anchoring, which would change t
 | `retrace delete <sessionId...> [--yes]` | Permanently delete one or more sessions (their events and on-disk data). Prompts for confirmation unless `--yes` is given. CAS snapshots aren't reclaimed — that needs `retrace reset`. |
 | `retrace reset [--yes]` | Permanently wipe the entire store — every session and every CAS object, all of `~/.retrace` (or `$RETRACE_HOME`). Prompts for confirmation unless `--yes` is given. |
 | `retrace link [sessionId] [--all] [--repo <dir>] [--grace <minutes>] [--json]` | Link a session to the git commit(s) it plausibly produced — inferred from repo, timing, and touched-file overlap, never written to the commit itself. `--repo` overrides the session's recorded working directory; `--grace` (default 30) is how many minutes after a session ends a commit still counts as its work. |
-| `retrace report [--base <ref>] [--head <ref>] [--output <path>] [--publish] [--remote <name>] [--fail-on <severity>] [--disable <ruleId...>] [--json] [--read <sha>]` | Assemble a portable findings report for a commit range (default: merge-base with the default branch, or `HEAD~1`, through `HEAD`) and write it as a git note on the head commit — see [Getting the report to CI](#getting-the-report-to-ci) below. `--output` writes a file instead of a note; `--publish` also pushes the note; `--read <sha>` prints back a stored note instead of generating one (what CI uses — it never has a store to check against). Same exit-code contract as `retrace check`. |
+| `retrace report [--base <ref>] [--head <ref>] [--output <path>] [--publish] [--remote <name>] [--fail-on <severity>] [--disable <ruleId...>] [--json] [--read <sha>] [--format <json\|github>] [--max-annotations <n>]` | Assemble a portable findings report for a commit range (default: merge-base with the default branch, or `HEAD~1`, through `HEAD`) and write it as a git note on the head commit — see [Getting the report to CI](#getting-the-report-to-ci) below. `--output` writes a file instead of a note; `--publish` also pushes the note; `--read <sha>` prints back a stored note instead of generating one (what CI uses — it never has a store to check against). `--format github` prints GitHub Actions annotations and a markdown job summary instead of JSON — see [CI output format](#ci-output-format) below. Same exit-code contract as `retrace check`. |
 | `retrace hook` | Internal: invoked by the hooks `retrace init` installs, reading a Claude Code hook payload from stdin. Not meant to be run by hand. |
 
 ## How it works
@@ -171,6 +171,36 @@ A rebase is worth understanding concretely: the note stays attached to the *orig
 readable there, as long as that object hasn't been garbage-collected), but the rebase produces a **new**
 SHA that has no note of its own. A report generated before a rebase does not carry forward automatically
 — re-run `retrace report` (and `--publish`, or re-commit the output file) after rebasing.
+
+## CI output format
+
+`retrace report --format github` turns a report into the two things a GitHub Actions job can display:
+
+- **Inline annotations** — one `::warning file=…,line=…,title=…::message` [workflow command](https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions)
+  per finding, printed to stdout. These need **no token, no `checks: write` permission, and no GitHub
+  App install** — they attach to the job's own check rather than a separate Check Run, which is the
+  trade that keeps this usable without an org-admin approval step. Severity maps to level (`high` →
+  `error`, `medium` → `warning`, `low` → `notice`), but **the level is cosmetic** — an `error`
+  annotation does not fail the job by itself. Only the process's exit code does that, governed by
+  `--fail-on` exactly as it is for JSON output. A finding can only be annotated when its path resolves
+  to a file inside the commit range's diff — Retrace does not fabricate a line number (findings anchor
+  to a session event, not a source line, so every annotation lands on line 1) or guess at a file the
+  diff doesn't show. Everything else stays in the summary. Annotations are capped at 20 by default
+  (`--max-annotations`); a truncated list says so in the summary rather than silently dropping findings.
+- **A markdown job summary** — written to `$GITHUB_STEP_SUMMARY` when a workflow sets it (the standard
+  way to add content to a job's summary tab), falling back to stdout otherwise so the command stays
+  usable and inspectable locally. It lists every finding as a table (including ones that couldn't be
+  annotated, with a note explaining why), names any rule that failed to run, and closes with the local
+  command — `retrace ui` — and session id(s) to inspect a finding in full context. **No transcript
+  content, reasoning, or diffs ever appear in it** — deliberately: reviewers reading agent PRs do not
+  want session context in the review, they want to know what changed and whether it's trustworthy.
+
+```bash
+retrace report --format github --fail-on high
+```
+
+Module 07 wraps this as a ready-to-use GitHub Action; run the command directly if you're wiring your
+own workflow instead.
 
 ## Development
 

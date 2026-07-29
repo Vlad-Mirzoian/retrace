@@ -25,6 +25,23 @@ All notable changes to this project are documented in this file. The format foll
   try/catch the way `check`'s is. See
   [Getting the report to CI](README.md#getting-the-report-to-ci) in the README for the push/fetch
   requirement and the file fallback.
+- `retrace report --format github` — turns a `RetraceReport` into what a GitHub Actions job can
+  display: workflow-command annotations (`::warning file=…,line=…,title=…::message`) on stdout and a
+  markdown job summary written to `$GITHUB_STEP_SUMMARY` (stdout as a fallback, so the command stays
+  usable locally). No token, no `checks: write` permission, and no GitHub App install required —
+  annotations attach to the job's own check rather than a separate Check Run. Severity maps to level
+  (`high`→`error`, `medium`→`warning`, `low`→`notice`), but the level is purely cosmetic: only the
+  process's exit code (governed by `--fail-on`, unchanged) fails a job. A finding can only be annotated
+  when it has a repo-relative path and that path falls inside the commit range's diff (computed via a
+  new `changedFiles` git helper, three-dot against the merge-base — the same diff a PR shows); every
+  other finding stays in the summary table with a note explaining why it wasn't annotated. No line
+  number is fabricated — `CheckFinding` anchors to an event `seq`, not a source line, so every
+  annotation lands on line 1. Annotations are capped at 20 by default (`--max-annotations` overrides),
+  with the omitted count surfaced in the summary rather than silently dropped. The summary carries
+  findings and identifiers only — no transcript text, reasoning, or diff content, ever. New
+  `packages/core/src/ci/github.ts` (`formatGithub`, pure, no Node imports, re-exported from
+  `browser.ts`) does the formatting; `program.ts` wires stdout/file placement and `--format`/
+  `--max-annotations` validation. See [CI output format](README.md#ci-output-format) in the README.
 
 ### Changed
 

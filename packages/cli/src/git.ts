@@ -132,6 +132,21 @@ export function mergeBase(repoRootPath: string, a: string, b: string): string | 
   }
 }
 
+/**
+ * Repo-relative POSIX paths changed between `base` and `head`, three-dot
+ * (`base...head`, i.e. against their merge-base) — the same diff GitHub
+ * shows on a PR, not the two-dot `commitsInRange` diff module 04 uses to
+ * find linked sessions. Feeds module 06's annotation filter: a finding
+ * outside this set can't be annotated on the diff, so it stays summary-only.
+ */
+export function changedFiles(repoRootPath: string, base: string, head: string): string[] {
+  const output = runGit(["diff", "--name-only", `${base}...${head}`], repoRootPath);
+  return output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
+
 /** The default ref reports are written under — short form, as `git notes --ref` expects. */
 export const REPORT_NOTES_REF = "retrace";
 

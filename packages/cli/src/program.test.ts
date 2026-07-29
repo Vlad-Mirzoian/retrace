@@ -1001,4 +1001,156 @@ describe("createProgram — report", () => {
       expect(createStore).not.toHaveBeenCalled();
     });
   });
+
+  describe("--format github", () => {
+    afterEach(() => {
+      delete process.env.GITHUB_STEP_SUMMARY;
+    });
+
+    it("prints only workflow-command annotation lines to stdout and writes the summary to $GITHUB_STEP_SUMMARY", async () => {
+      const withFinding = report([
+        { ruleId: "unaddressed-error", severity: "high", title: "boom", seq: 1, sessionId: "sess-1", repoPath: "src/a.ts" },
+      ]);
+      const generateReport = vi.fn().mockReturnValue(generateResult(withFinding));
+      const changedFilesInRange = vi.fn().mockReturnValue(undefined);
+      const summaryPath = join(home, "summary.md");
+      process.env.GITHUB_STEP_SUMMARY = summaryPath;
+
+      const program = createProgram({
+        createStore: () => store,
+        generateReport,
+        writeReportNote: vi.fn(),
+        changedFilesInRange,
+      });
+      await program.parseAsync(["node", "retrace", "report", "--format", "github", "--fail-on", "never"]);
+
+      expect(output()).toBe("::error file=src/a.ts,line=1,title=boom::boom");
+      const summary = readFileSync(summaryPath, "utf8");
+      expect(summary).toContain("Retrace findings");
+      expect(summary).toContain("boom");
+    });
+
+    it("falls back to printing the summary to stdout when $GITHUB_STEP_SUMMARY isn't set", async () => {
+      const withFinding = report([
+        { ruleId: "unaddressed-error", severity: "low", title: "note", seq: 1, sessionId: "sess-1", repoPath: "a.ts" },
+      ]);
+      const generateReport = vi.fn().mockReturnValue(generateResult(withFinding));
+      const changedFilesInRange = vi.fn().mockReturnValue(undefined);
+
+      const program = createProgram({
+        createStore: () => store,
+        generateReport,
+        writeReportNote: vi.fn(),
+        changedFilesInRange,
+      });
+      await program.parseAsync(["node", "retrace", "report", "--format", "github", "--fail-on", "never"]);
+
+      expect(output()).toContain("::notice file=a.ts,line=1,title=note::note");
+      expect(output()).toContain("Retrace findings");
+    });
+
+    it("filters annotations to the changed-files list returned by changedFilesInRange", async () => {
+      const withFindings = report([
+        { ruleId: "unaddressed-error", severity: "medium", title: "in diff", seq: 1, sessionId: "sess-1", repoPath: "src/in.ts" },
+        { ruleId: "unaddressed-error", severity: "medium", title: "outside diff", seq: 2, sessionId: "sess-1", repoPath: "src/out.ts" },
+      ]);
+      const generateReport = vi.fn().mockReturnValue(generateResult(withFindings));
+      const changedFilesInRange = vi.fn().mockReturnValue(["src/in.ts"]);
+
+      const program = createProgram({
+        createStore: () => store,
+        generateReport,
+        writeReportNote: vi.fn(),
+        changedFilesInRange,
+      });
+      await program.parseAsync(["node", "retrace", "report", "--format", "github", "--fail-on", "never"]);
+
+      expect(output()).toContain("title=in diff");
+      expect(output()).not.toContain("title=outside diff");
+      expect(changedFilesInRange).toHaveBeenCalledWith("/repo", withFindings.range);
+    });
+
+    it("respects --max-annotations", async () => {
+      const findings = Array.from({ length: 5 }, (_, i) => ({
+        ruleId: "unaddressed-error",
+        severity: "low" as const,
+        title: `finding ${i}`,
+        seq: i,
+        sessionId: "sess-1",
+        repoPath: `f${i}.ts`,
+      }));
+      const generateReport = vi.fn().mockReturnValue(generateResult(report(findings)));
+      const changedFilesInRange = vi.fn().mockReturnValue(undefined);
+
+      const program = createProgram({
+        createStore: () => store,
+        generateReport,
+        writeReportNote: vi.fn(),
+        changedFilesInRange,
+      });
+      await program.parseAsync([
+        "node",
+        "retrace",
+        "report",
+        "--format",
+        "github",
+        "--max-annotations",
+        "2",
+        "--fail-on",
+        "never",
+      ]);
+
+      const annotationLines = output().split("\n").filter((line) => line.startsWith("::"));
+      expect(annotationLines).toHaveLength(2);
+    });
+
+    it("rejects an invalid --format value with exit code 2", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const generateReport = vi.fn();
+
+      const program = createProgram({ createStore: () => store, generateReport });
+      await program.parseAsync(["node", "retrace", "report", "--format", "yaml"]);
+
+      expect(generateReport).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(2);
+      expect(errorSpy.mock.calls.join("\n")).toMatch(/invalid --format/i);
+
+      errorSpy.mockRestore();
+      process.exitCode = 0;
+    });
+
+    it("rejects a non-numeric --max-annotations value with exit code 2", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const generateReport = vi.fn();
+
+      const program = createProgram({ createStore: () => store, generateReport });
+      await program.parseAsync(["node", "retrace", "report", "--max-annotations", "not-a-number"]);
+
+      expect(generateReport).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(2);
+      expect(errorSpy.mock.calls.join("\n")).toMatch(/invalid --max-annotations/i);
+
+      errorSpy.mockRestore();
+      process.exitCode = 0;
+    });
+
+    it("also formats as github for --read", async () => {
+      const withFinding = report([
+        { ruleId: "unaddressed-error", severity: "medium", title: "from a note", seq: 1, sessionId: "sess-1", repoPath: "a.ts" },
+      ]);
+      const resolveRepoRoot = vi.fn().mockReturnValue("/repo");
+      const readReportNote = vi.fn().mockReturnValue(withFinding);
+      const changedFilesInRange = vi.fn().mockReturnValue(undefined);
+
+      const program = createProgram({
+        createStore: () => store,
+        resolveRepoRoot,
+        readReportNote,
+        changedFilesInRange,
+      });
+      await program.parseAsync(["node", "retrace", "report", "--read", "abc123", "--format", "github", "--fail-on", "never"]);
+
+      expect(output()).toContain("::warning file=a.ts,line=1,title=from a note::from a note");
+    });
+  });
 });

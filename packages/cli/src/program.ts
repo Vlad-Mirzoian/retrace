@@ -1,6 +1,8 @@
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import { Command } from "commander";
 import {
+  DEFAULT_MAX_ANNOTATIONS,
+  formatGithub,
   RetraceStore,
   RULES,
   type CheckOptions,
@@ -100,6 +102,7 @@ export interface ProgramDeps {
   readReportNote?: (repoRoot: string, sha: string) => RetraceReport | undefined;
   publishReportNote?: (repoRoot: string, remote: string) => void;
   resolveRepoRoot?: (cwd: string) => string;
+  changedFilesInRange?: (repoRoot: string, range: RetraceReport["range"]) => string[] | undefined;
   /** Yes/no prompt for `delete`/`reset` when `--yes` isn't given. Injectable so tests never block on real stdin. */
   confirm?: (question: string) => Promise<boolean>;
   /** Absolute path to the embedded viewer build; passed by cli.ts (see server/app.ts). */
@@ -171,7 +174,11 @@ interface ReportCliOptions {
   disable?: string[];
   json?: boolean;
   read?: string;
+  format?: string;
+  maxAnnotations?: string;
 }
+
+const REPORT_FORMAT_VALUES = ["json", "github"] as const;
 
 const FAIL_ON_VALUES = ["high", "medium", "low", "never"] as const;
 const SEVERITY_RANK: Record<Severity, number> = { low: 1, medium: 2, high: 3 };
@@ -283,6 +290,25 @@ function formatReport(report: RetraceReport): string {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * `--format github` output: annotation lines to stdout (workflow commands —
+ * that's the whole point of this format, so nothing else shares that
+ * stream), and the markdown summary to `$GITHUB_STEP_SUMMARY` when the
+ * environment sets it (appended, since a job can run several
+ * summary-writing steps), falling back to stdout when it isn't — so the
+ * command stays inspectable when run locally, outside an Actions job.
+ */
+function printGithubFormat(annotationLines: string[], summaryMarkdown: string): void {
+  for (const line of annotationLines) console.log(line);
+
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryPath) {
+    appendFileSync(summaryPath, `${summaryMarkdown}\n`);
+  } else {
+    console.log(summaryMarkdown);
+  }
 }
 
 /**
@@ -732,6 +758,15 @@ export function createProgram(deps: ProgramDeps = {}): Command {
     .option("--disable <ruleId...>", "skip specific rules")
     .option("--json", "print the report as JSON instead of a human-readable summary")
     .option("--read <sha>", "print the stored report note for <sha> instead of generating a new one")
+    .option(
+      "--format <fmt>",
+      "output format: json (default, respects --json/--output) or github (workflow-command annotations + $GITHUB_STEP_SUMMARY)",
+      "json",
+    )
+    .option(
+      "--max-annotations <n>",
+      `cap on emitted --format github annotations (default ${DEFAULT_MAX_ANNOTATIONS})`,
+    )
     .action(async (opts: ReportCliOptions) => {
       const failOnRaw = opts.failOn ?? "high";
       if (!(FAIL_ON_VALUES as readonly string[]).includes(failOnRaw)) {
@@ -743,7 +778,28 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       }
       const failOn = failOnRaw as Severity | "never";
 
+      const formatRaw = opts.format ?? "json";
+      if (!(REPORT_FORMAT_VALUES as readonly string[]).includes(formatRaw)) {
+        console.error(
+          `Invalid --format value "${formatRaw}" — expected one of: ${REPORT_FORMAT_VALUES.join(", ")}.`,
+        );
+        process.exitCode = 2;
+        return;
+      }
+      const format = formatRaw as (typeof REPORT_FORMAT_VALUES)[number];
+
+      let maxAnnotations: number | undefined;
+      if (opts.maxAnnotations !== undefined) {
+        maxAnnotations = Number(opts.maxAnnotations);
+        if (!Number.isInteger(maxAnnotations) || maxAnnotations < 0) {
+          console.error(`Invalid --max-annotations value "${opts.maxAnnotations}" — expected a non-negative integer.`);
+          process.exitCode = 2;
+          return;
+        }
+      }
+
       const mod = await lazy.report();
+      const changedFilesInRange = deps.changedFilesInRange ?? mod.changedFilesInRange;
 
       if (opts.read !== undefined) {
         try {
@@ -755,7 +811,15 @@ export function createProgram(deps: ProgramDeps = {}): Command {
             console.log(`No report found for ${opts.read} (ref: retrace).`);
             return;
           }
-          console.log(opts.json ? JSON.stringify(report) : formatReport(report));
+          if (format === "github") {
+            const { annotationLines, summaryMarkdown } = formatGithub(report, {
+              changedFiles: changedFilesInRange(root, report.range),
+              maxAnnotations,
+            });
+            printGithubFormat(annotationLines, summaryMarkdown);
+          } else {
+            console.log(opts.json ? JSON.stringify(report) : formatReport(report));
+          }
           if (mod.reportBreachesThreshold(report, failOn)) process.exitCode = 1;
         } catch (err) {
           console.error(err instanceof Error ? err.message : String(err));
@@ -792,7 +856,13 @@ export function createProgram(deps: ProgramDeps = {}): Command {
           if (opts.publish) publishReportNote(result.repoRoot, opts.remote ?? "origin");
         }
 
-        if (opts.json) {
+        if (format === "github") {
+          const { annotationLines, summaryMarkdown } = formatGithub(result.report, {
+            changedFiles: changedFilesInRange(result.repoRoot, result.report.range),
+            maxAnnotations,
+          });
+          printGithubFormat(annotationLines, summaryMarkdown);
+        } else if (opts.json) {
           console.log(JSON.stringify(result.report));
         } else {
           if (opts.output) {

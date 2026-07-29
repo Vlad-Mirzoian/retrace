@@ -1,6 +1,7 @@
 import type { CheckOptions, RetraceReport, RetraceStore, Severity } from "retrace-core";
 import { buildReport, CORE_VERSION, type SessionReportInput } from "retrace-core";
 import {
+  changedFiles as gitChangedFiles,
   commitsInRange,
   defaultBranch,
   mergeBase,
@@ -118,6 +119,22 @@ export function resolveRepoRoot(cwd: string): string {
     throw new Error(`${cwd} is not inside a git repository`);
   }
   return root;
+}
+
+/**
+ * Repo-relative paths changed in `range` — what `--format github` filters
+ * annotations against (module 06). Best-effort: a shallow CI checkout may
+ * not have `base` locally, so a failure here is not fatal to the report
+ * command as a whole — the caller falls back to annotating every finding
+ * that has a `repoPath`, unfiltered, rather than failing the whole command
+ * over a display-filtering nicety.
+ */
+export function changedFilesInRange(repoRoot: string, range: RetraceReport["range"]): string[] | undefined {
+  try {
+    return gitChangedFiles(repoRoot, range.base ?? `${range.head}~1`, range.head);
+  } catch {
+    return undefined;
+  }
 }
 
 const SEVERITY_RANK: Record<Severity, number> = { low: 1, medium: 2, high: 3 };

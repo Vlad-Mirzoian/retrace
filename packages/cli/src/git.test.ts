@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  changedFiles,
   commitsInRange,
   defaultBranch,
   fetchNotes,
@@ -141,6 +142,36 @@ describe("mergeBase", () => {
 
   it("returns undefined when a ref does not resolve", () => {
     expect(mergeBase(dir, "does-not-exist", "HEAD")).toBeUndefined();
+  });
+});
+
+describe("changedFiles", () => {
+  it("lists repo-relative paths changed between base and head", async () => {
+    const base = await commitFile("a.txt", "one", "first");
+    await commitFile("b.txt", "two", "second");
+    await commitFile("a.txt", "one-changed", "third");
+
+    expect(changedFiles(dir, base, "HEAD").sort()).toEqual(["a.txt", "b.txt"]);
+  });
+
+  it("returns an empty array when nothing changed in the range", async () => {
+    const sha = await commitFile("a.txt", "one", "first");
+    expect(changedFiles(dir, sha, sha)).toEqual([]);
+  });
+
+  it("diffs against the merge-base (three-dot), not head..base directly, matching a PR's diff view", async () => {
+    await commitFile("a.txt", "one", "first");
+    const trunk = git(["symbolic-ref", "--short", "HEAD"]);
+    git(["checkout", "-b", "feature"]);
+    await commitFile("feature-only.txt", "x", "on feature");
+    git(["checkout", trunk, "-q"]);
+    await commitFile("trunk-only.txt", "y", "on trunk, after feature branched off");
+
+    // A PR's diff shows only what the feature branch itself changed
+    // (feature-only.txt), never trunk's own unrelated commits made after
+    // the branch point (trunk-only.txt) — that's what three-dot buys over
+    // a plain two-dot diff.
+    expect(changedFiles(dir, trunk, "feature")).toEqual(["feature-only.txt"]);
   });
 });
 

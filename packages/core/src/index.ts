@@ -31,3 +31,4 @@ export * from "./check/index.js";
 export * from "./transcript/index.js";
 export * from "./link.js";
 export * from "./report.js";
+export * from "./ci/github.js";
