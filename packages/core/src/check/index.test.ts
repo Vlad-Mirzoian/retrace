@@ -150,10 +150,11 @@ describe("runChecks against canonical fixtures", () => {
       },
       {
         ruleId: "untracked-bash-mutation",
-        severity: "medium",
-        title: "Bash command (rm) may have modified files outside Retrace's record",
+        severity: "low",
+        title: "dist may have been modified by a shell command, outside Retrace's record",
         detail: "rm -rf dist",
         seq: 11,
+        path: "dist",
         toolUseId: "toolu_rm1",
       },
     ]);

@@ -18,6 +18,31 @@ All notable changes to this project are documented in this file. The format foll
   command (`unverified-test-claim`, previously `medium`). Sessions that previously exited `0` under
   the default threshold may now exit `1`. See the `Severity` doc comment in
   `packages/core/src/check/types.ts` for the full contract each escalation is held to.
+- `untracked-bash-mutation` is more precise and, where possible, actionable:
+  - No longer matches stderr-to-null or stream-merge redirects (`2>/dev/null`, `2>NUL`, `2>$null`,
+    `2>&1`, `>&2`) — previously the single largest source of findings, all false positives, since
+    none of these write to a real file.
+  - Resolves and names the actual file a command targets where the command text allows it (85.6% of
+    findings in the measured corpus), instead of only naming the matched shape (`cp`, `sed -i`, ...).
+    Findings whose resolved path lands in an obviously transient location (`node_modules/`, `dist/`,
+    `.git/`, a temp dir, or a `scratch-`-prefixed file — this project's own scratch-file convention)
+    are `low`; shapes that are near-universally housekeeping with no resolvable target (`mkdir`,
+    package installs, `git checkout`/`reset`) are also `low`. The rule's main case stays `medium`.
+  - Collapses to one finding per distinct `(shape, resolved file)` pair per session — previously one
+    per shape regardless of how many files it touched — capped at 10 with a trailing summary finding
+    for any remainder, so the rule stays boundable on a PR.
+  - **Known limitation, measured honestly rather than hidden:** this module's plan targeted
+    `untracked-bash-mutation` accounting for under 40% of total findings (down from the original 70%).
+    Against the same 67-session corpus it now accounts for **77.3%** (201/260) — higher, not lower.
+    This isn't the redirect-noise fix failing; excluding null/merge redirects and capping both work as
+    intended, but per-file collapsing is inherently more granular than the old one-finding-per-shape
+    behavior, and this corpus (the author's own history of building Retrace) contains an unusually
+    high number of genuinely distinct untracked shell mutations — ad-hoc scratch files and multi-step
+    manual verification scripts are common in this project's own workflow in a way a typical
+    contributor's PR is unlikely to reproduce. Even capping every session's findings from this rule
+    down to 1 (which would eliminate per-file attribution entirely) only reaches 41.6%. The
+    per-finding quality bar (spot-checked findings name a plausible real file; the redirect exclusion
+    is exact) was prioritized over hitting the percentage target on this specific corpus.
 
 ## [0.3.0] — 2026-07-27
 
