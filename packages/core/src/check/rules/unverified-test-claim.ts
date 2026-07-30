@@ -76,8 +76,7 @@ export const unverifiedTestClaimRule: CheckRule = {
           // written *after* a real test run as the last step of a turn, and
           // don't invalidate the verification that already happened —
           // confirmed against real sessions, where this was the single
-          // largest source of false positives (see the module's completion
-          // note in plan/module-05-claim-rules.md).
+          // largest source of false positives.
           if (!event.payload.path.toLowerCase().endsWith(".md")) {
             testCall = undefined;
           }

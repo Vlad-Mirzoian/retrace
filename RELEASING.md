@@ -7,7 +7,7 @@ pack time, and that version must already resolve on the registry before `retrace
 
 ## Automated (preferred)
 
-Push a tag matching `v*` (e.g. `v0.3.0`) to trigger `.github/workflows/release.yml`. It builds, tests,
+Push a tag matching `v*` (e.g. `v0.4.0`) to trigger `.github/workflows/release.yml`. It builds, tests,
 runs `pnpm verify:pack` (packs both packages and smoke-tests the packed artifact end to end — not just
 the source tree), then publishes `retrace-core` and then `retrace-cli` with npm provenance. The job is
 guarded to only run on this repository (never a fork) and sits behind a `release` GitHub Environment, so
@@ -45,3 +45,31 @@ further.)
   you.
 - npm versions are immutable. If you're unsure about metadata (`repository`, `homepage`, `bugs`,
   `description`), fix it before publishing, not after.
+
+## The GitHub Action's `v0` tag
+
+`action.yml` is consumed as `Vlad-Mirzoian/retrace@v0` (see [`README.md`](README.md#use-it-in-ci) and
+[`docs/ci.md`](docs/ci.md)) — a second artifact, with a second, separate release cadence from the npm
+packages above. It's a floating major-version tag, the convention every widely-used GitHub Action
+follows (`actions/checkout@v4`, `actions/setup-node@v4`, ...): consumers pin to `v0` once and get
+every subsequent fix and feature automatically, without editing their workflow file each time, while
+still being able to pin an exact commit or tag themselves if they want stability over updates instead.
+
+**This repo's tooling does not move that tag for you — nothing here even suggests a version number.**
+After a release where `action.yml` changed (or its default `version` input needs bumping to point at
+the npm release just published), move it yourself:
+
+```bash
+git tag -f v0 <commit-sha-or-just-pushed-tag>
+git push origin v0 --force
+```
+
+Forgetting this step is the classic way a GitHub Action silently stops updating: the tag stays parked
+on an old commit, every consumer keeps running old behavior, and nothing in CI complains because
+there's nothing to compare against. If `action.yml`'s default `version` input still names an old
+`retrace-cli` release after an npm publish, that's a sign this step was missed, not a sign the Action
+input needs a second bump elsewhere — the tag move and the `version` input default should be part of
+the same release, not two.
+
+There is no automation for this in `.github/workflows/` — deliberately, matching the tag-push trigger
+above: releasing is a decision, not something that happens as a side effect of some other job passing.

@@ -121,6 +121,16 @@ describe("note round-trip", () => {
     expect(readReportNote(repoDir, sha)).toBeUndefined();
   });
 
+  it("writes and reads under a custom notes ref, isolated from the default one", async () => {
+    const sha = await commitFile("a.txt", "one", "first");
+    const { report } = generateReport(store, repoDir, { base: sha, head: sha });
+
+    writeReportNote(repoDir, sha, report, "custom-ref");
+
+    expect(readReportNote(repoDir, sha)).toBeUndefined(); // nothing under the default "retrace" ref
+    expect(JSON.stringify(readReportNote(repoDir, sha, "custom-ref"))).toBe(JSON.stringify(report));
+  });
+
   it("publishReportNote pushes the note so a fresh clone can fetch it", async () => {
     const remoteDir = await mkdtemp(join(tmpdir(), "retrace-report-remote-"));
     const ciDir = await mkdtemp(join(tmpdir(), "retrace-report-ci-"));

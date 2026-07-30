@@ -91,20 +91,20 @@ export function generateReport(
   return { report, repoRoot: root, headSha, baseRef };
 }
 
-/** Write (or overwrite) the report note for `sha`. */
-export function writeReportNote(repoRoot: string, sha: string, report: RetraceReport): void {
-  writeNote(repoRoot, REPORT_NOTES_REF, sha, JSON.stringify(report));
+/** Write (or overwrite) the report note for `sha`. `ref` defaults to {@link REPORT_NOTES_REF}; overridable so a repo that already uses `refs/notes/<name>` for something else can pick a different one — module 07's Action input is `notes-ref`. */
+export function writeReportNote(repoRoot: string, sha: string, report: RetraceReport, ref: string = REPORT_NOTES_REF): void {
+  writeNote(repoRoot, ref, sha, JSON.stringify(report));
 }
 
 /** Read back the report note for `sha`, or `undefined` when none exists — the common case, not every commit is reported on. */
-export function readReportNote(repoRoot: string, sha: string): RetraceReport | undefined {
-  const body = readNote(repoRoot, REPORT_NOTES_REF, sha);
+export function readReportNote(repoRoot: string, sha: string, ref: string = REPORT_NOTES_REF): RetraceReport | undefined {
+  const body = readNote(repoRoot, ref, sha);
   return body === undefined ? undefined : (JSON.parse(body) as RetraceReport);
 }
 
 /** Push the report notes ref to `remote`, so CI (which never sees the developer's local refs) can fetch it. */
-export function publishReportNote(repoRoot: string, remote: string): void {
-  pushNotes(repoRoot, remote, REPORT_NOTES_REF);
+export function publishReportNote(repoRoot: string, remote: string, ref: string = REPORT_NOTES_REF): void {
+  pushNotes(repoRoot, remote, ref);
 }
 
 /**

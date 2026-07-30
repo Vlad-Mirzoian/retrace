@@ -108,7 +108,7 @@ controls that machine can recompute it. External anchoring, which would change t
 | `retrace delete <sessionId...> [--yes]` | Permanently delete one or more sessions (their events and on-disk data). Prompts for confirmation unless `--yes` is given. CAS snapshots aren't reclaimed — that needs `retrace reset`. |
 | `retrace reset [--yes]` | Permanently wipe the entire store — every session and every CAS object, all of `~/.retrace` (or `$RETRACE_HOME`). Prompts for confirmation unless `--yes` is given. |
 | `retrace link [sessionId] [--all] [--repo <dir>] [--grace <minutes>] [--json]` | Link a session to the git commit(s) it plausibly produced — inferred from repo, timing, and touched-file overlap, never written to the commit itself. `--repo` overrides the session's recorded working directory; `--grace` (default 30) is how many minutes after a session ends a commit still counts as its work. |
-| `retrace report [--base <ref>] [--head <ref>] [--output <path>] [--publish] [--remote <name>] [--fail-on <severity>] [--disable <ruleId...>] [--json] [--read <sha>] [--format <json\|github>] [--max-annotations <n>]` | Assemble a portable findings report for a commit range (default: merge-base with the default branch, or `HEAD~1`, through `HEAD`) and write it as a git note on the head commit — see [Getting the report to CI](#getting-the-report-to-ci) below. `--output` writes a file instead of a note; `--publish` also pushes the note; `--read <sha>` prints back a stored note instead of generating one (what CI uses — it never has a store to check against). `--format github` prints GitHub Actions annotations and a markdown job summary instead of JSON — see [CI output format](#ci-output-format) below. Same exit-code contract as `retrace check`. |
+| `retrace report [--base <ref>] [--head <ref>] [--output <path>] [--publish] [--remote <name>] [--fail-on <severity>] [--disable <ruleId...>] [--json] [--read <sha>] [--format <json\|github>] [--max-annotations <n>] [--notes-ref <ref>]` | Assemble a portable findings report for a commit range (default: merge-base with the default branch, or `HEAD~1`, through `HEAD`) and write it as a git note on the head commit — see [Getting the report to CI](#getting-the-report-to-ci) below. `--output` writes a file instead of a note; `--publish` also pushes the note; `--read <sha>` prints back a stored note instead of generating one (what CI uses — it never has a store to check against; `--base`/`--head` with `--read` override the diff `--format github` filters against, since the note's own range may not match the PR's; `--disable` also applies here, dropping that rule's findings from the printed report and the `--fail-on` check). `--format github` prints GitHub Actions annotations and a markdown job summary instead of JSON — see [CI output format](#ci-output-format) below and [Use it in CI](#use-it-in-ci) for the packaged Action. `--notes-ref` (default `retrace`) picks which git-notes ref to read/write, for a repo that already uses the default one for something else. Same exit-code contract as `retrace check`. |
 | `retrace hook` | Internal: invoked by the hooks `retrace init` installs, reading a Claude Code hook payload from stdin. Not meant to be run by hand. |
 
 ## How it works
@@ -172,6 +172,45 @@ readable there, as long as that object hasn't been garbage-collected), but the r
 SHA that has no note of its own. A report generated before a rebase does not carry forward automatically
 — re-run `retrace report` (and `--publish`, or re-commit the output file) after rebasing.
 
+## Use it in CI
+
+A composite GitHub Action ([`action.yml`](action.yml)) posts Retrace's findings on the PR itself —
+inline annotations on the changed files, plus a job summary. No GitHub App install, no
+`checks: write` permission, no PAT: it runs as workflow commands on stdout, which need nothing beyond
+`contents: read`.
+
+```yaml
+on: pull_request
+
+permissions:
+  contents: read # nothing more is needed — no checks:write, no PAT, no GitHub App
+
+jobs:
+  retrace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history — the action diffs base...head and fetches git notes
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22" # node:sqlite (used by retrace-cli) needs >=22.5
+
+      - uses: Vlad-Mirzoian/retrace@v0
+```
+
+**This check is not required by default, and the recommendation is not to make it one — see
+["Should I make this required?"](docs/ci.md#should-i-make-this-required) in the full setup guide
+before changing that.** A required check means one false positive blocks a merge; that is exactly
+the failure mode that gets a tool like this removed.
+
+The Action needs a report to have been published first (`retrace report --publish` — see
+[Getting the report to CI](#getting-the-report-to-ci) above); until then, it prints a neutral
+message and exits 0 rather than failing. That is expected on a fresh install, not a sign anything is
+broken. Full setup, inputs (`fail-on`, `max-annotations`, `disable`, `notes-ref`, `version`), and
+tuning guidance live in **[docs/ci.md](docs/ci.md)**.
+
 ## CI output format
 
 `retrace report --format github` turns a report into the two things a GitHub Actions job can display:
@@ -199,8 +238,8 @@ SHA that has no note of its own. A report generated before a rebase does not car
 retrace report --format github --fail-on high
 ```
 
-Module 07 wraps this as a ready-to-use GitHub Action; run the command directly if you're wiring your
-own workflow instead.
+This is what [the Action above](#use-it-in-ci) runs under the hood; call it directly instead if
+you're wiring your own workflow rather than using `action.yml` as-is.
 
 ## Development
 
@@ -240,20 +279,26 @@ See [RELEASING.md](RELEASING.md) for the publish process.
 Shipped: recording (transcript import + live hooks), the check engine and `retrace check` (edits to
 never-read files, unaddressed tool errors, unverified test/build claims, claimed changes with no
 matching edit, untracked shell mutations), findings surfaced in the API and viewer, a local store
-with a tamper-evident hash chain, and full recording-side replay — step-through playback,
-working-tree reconstruction, failure localization with causal traces, and side-by-side run
-comparison.
+with a tamper-evident hash chain, full recording-side replay (step-through playback, working-tree
+reconstruction, failure localization with causal traces, side-by-side run comparison), session ↔
+commit linkage (`retrace link`), a portable findings report transported via git notes (`retrace
+report`, [Getting the report to CI](#getting-the-report-to-ci)), and a GitHub Action that posts those
+findings on the PR itself with no required install ([Use it in CI](#use-it-in-ci)) — the full sequence
+from a locally-tuned check engine to findings on a stranger's PR.
 
-- **Next: session ↔ commit/PR provenance.** Link findings to the commits they came from, emit the
-  Linux-kernel `Assisted-by:` trailer, and interoperate with the
-  [`cursor/agent-trace`](https://github.com/cursor/agent-trace) spec — which deliberately excludes
-  tool calls and reasoning, so it complements rather than competes with what Retrace records.
-- **After: cross-session forensics.** The store already indexes every session; the viewer only
-  ever renders one at a time.
+- **Next: cross-session forensics.** The store already indexes every session; the viewer only ever
+  renders one at a time.
 - **Later: external chain anchoring and signing**, for when the tamper-evidence claim needs to hold
   against someone who controls the machine, not just casual or accidental tampering.
 - **Explicitly not planned:** cost/token analytics (`ccusage`, Anthropic's Analytics API, and native
-  OpenTelemetry all cover it already), multi-agent adapters, and cloud storage.
+  OpenTelemetry all cover it already), multi-agent adapters, cloud storage, and the Linux-kernel
+  `Assisted-by:` trailer / [`cursor/agent-trace`](https://github.com/cursor/agent-trace) interop. An
+  earlier version of this roadmap listed both of the latter as "next" — the evidence changed:
+  `Assisted-by:` is under active deletion discussion in the kernel as of this writing (it would also
+  duplicate Claude Code's own trailer), and `agent-trace` has been frozen at a v0.1.0 RFC for six
+  months with no confirmed production producer or consumer. The session ↔ commit linkage underneath
+  both proposals was worth building on its own; conforming to unstable external standards on top of
+  it was not.
 
 ## License
 

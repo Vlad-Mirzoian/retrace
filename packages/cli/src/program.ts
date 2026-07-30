@@ -98,9 +98,9 @@ export interface ProgramDeps {
     cwd: string,
     options?: GenerateReportOptions,
   ) => GenerateReportResult;
-  writeReportNote?: (repoRoot: string, sha: string, report: RetraceReport) => void;
-  readReportNote?: (repoRoot: string, sha: string) => RetraceReport | undefined;
-  publishReportNote?: (repoRoot: string, remote: string) => void;
+  writeReportNote?: (repoRoot: string, sha: string, report: RetraceReport, ref?: string) => void;
+  readReportNote?: (repoRoot: string, sha: string, ref?: string) => RetraceReport | undefined;
+  publishReportNote?: (repoRoot: string, remote: string, ref?: string) => void;
   resolveRepoRoot?: (cwd: string) => string;
   changedFilesInRange?: (repoRoot: string, range: RetraceReport["range"]) => string[] | undefined;
   /** Yes/no prompt for `delete`/`reset` when `--yes` isn't given. Injectable so tests never block on real stdin. */
@@ -176,6 +176,7 @@ interface ReportCliOptions {
   read?: string;
   format?: string;
   maxAnnotations?: string;
+  notesRef?: string;
 }
 
 const REPORT_FORMAT_VALUES = ["json", "github"] as const;
@@ -290,6 +291,24 @@ function formatReport(report: RetraceReport): string {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * `--read` gets a report that already ran on someone else's machine — there
+ * is no session left to re-run a rule against, so `--disable` can't skip a
+ * rule the way it does for a fresh `generateReport` (`checkOptions.disabled`,
+ * passed to `checkSession`). What it *can* do, and what a reader of
+ * `--disable` reasonably expects either way, is drop that rule's findings
+ * from what gets displayed and from the `--fail-on` breach check — a rule
+ * disabled for CI purposes should neither show up nor be able to fail the
+ * job. `rulesRun`/`rulesSkipped` are left untouched: they're a historical
+ * record of what actually happened on the publishing machine, not something
+ * `--read` gets to rewrite.
+ */
+function excludeDisabledRules(report: RetraceReport, disabled: string[] | undefined): RetraceReport {
+  if (!disabled || disabled.length === 0) return report;
+  const disabledIds = new Set(disabled);
+  return { ...report, findings: report.findings.filter((finding) => !disabledIds.has(finding.ruleId)) };
 }
 
 /**
@@ -745,8 +764,17 @@ export function createProgram(deps: ProgramDeps = {}): Command {
   program
     .command("report")
     .description("Assemble a portable findings report for a commit range and write it as a git note")
-    .option("--base <ref>", "base of the commit range (default: merge-base with the default branch, or HEAD~1)")
-    .option("--head <ref>", "head of the commit range", "HEAD")
+    .option(
+      "--base <ref>",
+      "base of the commit range (default: merge-base with the default branch, or HEAD~1). " +
+        "With --read, also overrides which diff --format github filters annotations against, " +
+        "instead of the stored report's own range — use this to match the PR's actual base, " +
+        "which may differ from whatever range the note was generated against locally",
+    )
+    .option(
+      "--head <ref>",
+      "head of the commit range (default: HEAD). With --read, also overrides the diff head for --format github, same reasoning as --base",
+    )
     .option("--output <path>", "write the report JSON to a file instead of a git note")
     .option("--publish", "push the note to --remote after writing it (ignored with --output)")
     .option("--remote <name>", "remote to push the note to with --publish", "origin")
@@ -767,6 +795,7 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       "--max-annotations <n>",
       `cap on emitted --format github annotations (default ${DEFAULT_MAX_ANNOTATIONS})`,
     )
+    .option("--notes-ref <ref>", 'git-notes ref reports are written under and read from (default: "retrace")')
     .action(async (opts: ReportCliOptions) => {
       const failOnRaw = opts.failOn ?? "high";
       if (!(FAIL_ON_VALUES as readonly string[]).includes(failOnRaw)) {
@@ -806,14 +835,20 @@ export function createProgram(deps: ProgramDeps = {}): Command {
           const resolveRepoRoot = deps.resolveRepoRoot ?? mod.resolveRepoRoot;
           const readReportNote = deps.readReportNote ?? mod.readReportNote;
           const root = resolveRepoRoot(process.cwd());
-          const report = readReportNote(root, opts.read);
-          if (!report) {
-            console.log(`No report found for ${opts.read} (ref: retrace).`);
+          const rawReport = readReportNote(root, opts.read, opts.notesRef);
+          if (!rawReport) {
+            console.log(`No Retrace report for ${opts.read} — nothing to check.`);
             return;
           }
+          const report = excludeDisabledRules(rawReport, opts.disable);
           if (format === "github") {
+            // The stored note's own `range` reflects whatever base/head the
+            // developer had locally when they published it — not necessarily
+            // the PR's actual base. --base/--head override it here so the
+            // Action can pass the PR's real diff explicitly.
+            const diffRange = { base: opts.base ?? report.range.base, head: opts.head ?? report.range.head };
             const { annotationLines, summaryMarkdown } = formatGithub(report, {
-              changedFiles: changedFilesInRange(root, report.range),
+              changedFiles: changedFilesInRange(root, diffRange),
               maxAnnotations,
             });
             printGithubFormat(annotationLines, summaryMarkdown);
@@ -852,8 +887,8 @@ export function createProgram(deps: ProgramDeps = {}): Command {
         if (opts.output) {
           writeFileSync(opts.output, JSON.stringify(result.report));
         } else {
-          writeReportNote(result.repoRoot, result.headSha, result.report);
-          if (opts.publish) publishReportNote(result.repoRoot, opts.remote ?? "origin");
+          writeReportNote(result.repoRoot, result.headSha, result.report, opts.notesRef);
+          if (opts.publish) publishReportNote(result.repoRoot, opts.remote ?? "origin", opts.notesRef);
         }
 
         if (format === "github") {

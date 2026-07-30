@@ -5,6 +5,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-07-29
+
 ### Added
 
 - `retrace link [sessionId] [--all] [--repo <dir>] [--grace <minutes>] [--json]` — links a recorded
@@ -42,6 +44,34 @@ All notable changes to this project are documented in this file. The format foll
   `packages/core/src/ci/github.ts` (`formatGithub`, pure, no Node imports, re-exported from
   `browser.ts`) does the formatting; `program.ts` wires stdout/file placement and `--format`/
   `--max-annotations` validation. See [CI output format](README.md#ci-output-format) in the README.
+- **A composite GitHub Action** (`action.yml`, repo root) — the shipped Direction A surface: findings
+  posted on the PR itself, with no GitHub App install, no `checks: write` permission, and no PAT (a
+  composite action running `npx retrace-cli@<version> report --read ... --format github` needs
+  `contents: read` alone). Inputs: `fail-on` (default `high`), `max-annotations` (default `20`),
+  `disable`, `notes-ref` (default `retrace`), and `version` — pinned to a concrete release by default,
+  deliberately not `latest`, so a workflow's behavior never changes without someone choosing to bump
+  it. Guards against running outside a `pull_request` event, and tolerates `git fetch`ing a notes ref
+  that doesn't exist yet on the remote (the expected state for every repository on its first run,
+  before anyone has published a report) rather than failing — reuses `retrace report --read`'s
+  existing "no report" handling rather than duplicating that check. Dogfooded on this repository's own
+  PRs via `.github/workflows/example-retrace-check.yml` (referencing the local action source, `./`,
+  rather than a tag that doesn't exist yet). See [Use it in CI](README.md#use-it-in-ci) in the README
+  and the full guide at [`docs/ci.md`](docs/ci.md), including the explicit "should I make this
+  required?" answer (no).
+- `retrace report`'s `--notes-ref <ref>` (default `retrace`) — which git-notes ref to read from and
+  write to, for a repository that already uses the default one for something else. Threaded through
+  `writeReportNote`/`readReportNote`/`publishReportNote`, and exposed as the Action's `notes-ref`
+  input above.
+- With `--read`, `retrace report`'s existing `--base`/`--head` options now also override which diff
+  `--format github` filters annotations against — previously always the stored report's own `range`,
+  which reflects whatever base/head the developer had locally when they published it, not necessarily
+  a PR's actual base. The Action passes the PR's real `base.sha`/`head.sha` explicitly for this reason.
+- `--disable <ruleId...>` now also applies to `--read`, dropping that rule's findings from what's
+  printed (in any `--format`) and from the `--fail-on` breach check — previously `--disable` was
+  silently ignored in `--read` mode, since it only ever reached `checkSession` on the report-generation
+  path, and a *read* report has no session left to re-run a rule against. The Action's `disable` input
+  (and `docs/ci.md`'s "disabling a noisy rule" guidance) depend on this working, since the Action
+  always runs `retrace report --read`, never a fresh generate.
 
 ### Changed
 
