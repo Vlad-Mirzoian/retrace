@@ -6,6 +6,16 @@ import type { RetraceEvent } from "../schema.js";
  * from `browser.ts` for the viewer and the self-contained HTML export.
  */
 
+/**
+ * Severity contract every rule's escalation logic must be traceable to:
+ * - `high` — the session ended with work in a state the agent's own account
+ *   does not match, and no recorded evidence resolves it. Blocking is a
+ *   defensible response.
+ * - `medium` — a real behavioral problem with a plausible benign
+ *   explanation; worth a look, not worth blocking.
+ * - `low` — a claim that could not be corroborated from the record.
+ *   Informational.
+ */
 export type Severity = "high" | "medium" | "low";
 
 export interface CheckFinding {
@@ -31,6 +41,13 @@ export interface CheckRule {
   id: string;
   /** One-sentence description, surfaced by `retrace check --list-rules`. */
   description: string;
+  /**
+   * The rule's floor severity, surfaced by `retrace check --list-rules`. Not
+   * what gets reported: individual findings carry their own `severity`,
+   * which a rule may escalate above this floor per finding (see the
+   * `Severity` contract above) or a caller may override via
+   * `CheckOptions.severity`.
+   */
   defaultSeverity: Severity;
   run(events: RetraceEvent[], options: CheckOptions): CheckFinding[];
 }

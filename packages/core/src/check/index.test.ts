@@ -124,7 +124,7 @@ describe("runChecks against canonical fixtures", () => {
       },
       {
         ruleId: "unaddressed-error",
-        severity: "medium",
+        severity: "high",
         title: "npm test failed with no follow-up",
         detail: "Error: 3 tests failed in calc.test.ts",
         seq: 8,
@@ -142,7 +142,7 @@ describe("runChecks against canonical fixtures", () => {
       },
       {
         ruleId: "unverified-test-claim",
-        severity: "medium",
+        severity: "high",
         title: "Claimed tests pass, but the last test run failed",
         detail: "All tests pass now.",
         seq: 10,
@@ -150,10 +150,11 @@ describe("runChecks against canonical fixtures", () => {
       },
       {
         ruleId: "untracked-bash-mutation",
-        severity: "medium",
-        title: "Bash command (rm) may have modified files outside Retrace's record",
+        severity: "low",
+        title: "dist may have been modified by a shell command, outside Retrace's record",
         detail: "rm -rf dist",
         seq: 11,
+        path: "dist",
         toolUseId: "toolu_rm1",
       },
     ]);

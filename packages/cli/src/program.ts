@@ -1,5 +1,16 @@
+import { appendFileSync, writeFileSync } from "node:fs";
 import { Command } from "commander";
-import { RetraceStore, RULES, type CheckOptions, type CheckReport, type CheckRule, type Severity } from "retrace-core";
+import {
+  DEFAULT_MAX_ANNOTATIONS,
+  formatGithub,
+  RetraceStore,
+  RULES,
+  type CheckOptions,
+  type CheckReport,
+  type CheckRule,
+  type RetraceReport,
+  type Severity,
+} from "retrace-core";
 import type {
   ImportOptions,
   ImportSummary,
@@ -15,6 +26,8 @@ import type { CheckAllSummary, CheckSessionResult } from "./commands/check.js";
 import type { CompareOptions } from "./commands/compare.js";
 import type { DeleteSessionsSummary } from "./commands/delete.js";
 import type { ResetResult } from "./commands/reset.js";
+import type { LinkAllSummary, LinkCommandOptions, LinkSessionResult } from "./commands/link.js";
+import type { GenerateReportOptions, GenerateReportResult } from "./commands/report.js";
 import { confirm } from "./confirm.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -36,6 +49,8 @@ const lazy = {
   check: () => import("./commands/check.js"),
   delete: () => import("./commands/delete.js"),
   reset: () => import("./commands/reset.js"),
+  link: () => import("./commands/link.js"),
+  report: () => import("./commands/report.js"),
 };
 
 export interface ProgramDeps {
@@ -72,6 +87,22 @@ export interface ProgramDeps {
   ) => Promise<UiHandle>;
   deleteSessions?: (store: RetraceStore, idsOrPrefixes: string[]) => DeleteSessionsSummary;
   resetStore?: (store: RetraceStore) => ResetResult;
+  linkSession?: (
+    store: RetraceStore,
+    idOrPrefix: string,
+    options?: LinkCommandOptions,
+  ) => LinkSessionResult;
+  linkAll?: (store: RetraceStore, options?: LinkCommandOptions) => LinkAllSummary;
+  generateReport?: (
+    store: RetraceStore,
+    cwd: string,
+    options?: GenerateReportOptions,
+  ) => GenerateReportResult;
+  writeReportNote?: (repoRoot: string, sha: string, report: RetraceReport, ref?: string) => void;
+  readReportNote?: (repoRoot: string, sha: string, ref?: string) => RetraceReport | undefined;
+  publishReportNote?: (repoRoot: string, remote: string, ref?: string) => void;
+  resolveRepoRoot?: (cwd: string) => string;
+  changedFilesInRange?: (repoRoot: string, range: RetraceReport["range"]) => string[] | undefined;
   /** Yes/no prompt for `delete`/`reset` when `--yes` isn't given. Injectable so tests never block on real stdin. */
   confirm?: (question: string) => Promise<boolean>;
   /** Absolute path to the embedded viewer build; passed by cli.ts (see server/app.ts). */
@@ -125,6 +156,30 @@ interface CheckCommandOptions {
 interface YesOption {
   yes?: boolean;
 }
+
+interface LinkCliOptions {
+  all?: boolean;
+  repo?: string;
+  grace?: string;
+  json?: boolean;
+}
+
+interface ReportCliOptions {
+  base?: string;
+  head?: string;
+  output?: string;
+  publish?: boolean;
+  remote?: string;
+  failOn?: string;
+  disable?: string[];
+  json?: boolean;
+  read?: string;
+  format?: string;
+  maxAnnotations?: string;
+  notesRef?: string;
+}
+
+const REPORT_FORMAT_VALUES = ["json", "github"] as const;
 
 const FAIL_ON_VALUES = ["high", "medium", "low", "never"] as const;
 const SEVERITY_RANK: Record<Severity, number> = { low: 1, medium: 2, high: 3 };
@@ -194,6 +249,85 @@ function formatVerifyResult(result: VerifyResult): string {
     return `✓ ${result.sessionId}: verified (${result.eventCount} event(s))`;
   }
   return `✗ ${result.sessionId}: tampered at seq ${result.verification.index} — ${result.verification.reason}`;
+}
+
+function formatLinkResult(result: LinkSessionResult): string {
+  if (result.links.length === 0) {
+    return `${result.sessionId}: no commits linked (repo: ${result.repoRoot})`;
+  }
+  const lines = [`${result.sessionId}: linked ${result.links.length} commit(s) (repo: ${result.repoRoot})`];
+  for (const link of result.links) {
+    lines.push(`  ${link.commitSha.slice(0, 10)}  ${link.confidence}`);
+  }
+  return lines.join("\n");
+}
+
+/** Human-readable rendering of a `RetraceReport` — like `formatCheckReport`, but spanning every session in range, so each line also names which one. */
+function formatReport(report: RetraceReport): string {
+  const lines: string[] = [
+    `Report ${report.range.base ?? "(root)"}..${report.range.head} — ${report.sessions.length} session(s), ${report.findings.length} finding(s)`,
+  ];
+
+  if (report.findings.length === 0) {
+    lines.push("No findings.");
+  } else {
+    const sorted = [...report.findings].sort(
+      (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || a.seq - b.seq,
+    );
+    const severityWidth = Math.max(...sorted.map((f) => f.severity.length));
+    for (const finding of sorted) {
+      const severity = finding.severity.padEnd(severityWidth);
+      const location = finding.repoPath ?? finding.path ?? finding.ruleId;
+      lines.push(`  ${severity}  ${finding.sessionId.slice(0, 10)}  ${location}  ${finding.title}`);
+    }
+  }
+
+  if (report.findingsOmitted) {
+    lines.push(`(${report.findingsOmitted} additional finding(s) omitted — capped at assembly time)`);
+  }
+  if (report.rulesSkipped.length > 0) {
+    lines.push("", "skipped:");
+    for (const skipped of report.rulesSkipped) lines.push(`  ${skipped.ruleId}: ${skipped.reason}`);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * `--read` gets a report that already ran on someone else's machine — there
+ * is no session left to re-run a rule against, so `--disable` can't skip a
+ * rule the way it does for a fresh `generateReport` (`checkOptions.disabled`,
+ * passed to `checkSession`). What it *can* do, and what a reader of
+ * `--disable` reasonably expects either way, is drop that rule's findings
+ * from what gets displayed and from the `--fail-on` breach check — a rule
+ * disabled for CI purposes should neither show up nor be able to fail the
+ * job. `rulesRun`/`rulesSkipped` are left untouched: they're a historical
+ * record of what actually happened on the publishing machine, not something
+ * `--read` gets to rewrite.
+ */
+function excludeDisabledRules(report: RetraceReport, disabled: string[] | undefined): RetraceReport {
+  if (!disabled || disabled.length === 0) return report;
+  const disabledIds = new Set(disabled);
+  return { ...report, findings: report.findings.filter((finding) => !disabledIds.has(finding.ruleId)) };
+}
+
+/**
+ * `--format github` output: annotation lines to stdout (workflow commands —
+ * that's the whole point of this format, so nothing else shares that
+ * stream), and the markdown summary to `$GITHUB_STEP_SUMMARY` when the
+ * environment sets it (appended, since a job can run several
+ * summary-writing steps), falling back to stdout when it isn't — so the
+ * command stays inspectable when run locally, outside an Actions job.
+ */
+function printGithubFormat(annotationLines: string[], summaryMarkdown: string): void {
+  for (const line of annotationLines) console.log(line);
+
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryPath) {
+    appendFileSync(summaryPath, `${summaryMarkdown}\n`);
+  } else {
+    console.log(summaryMarkdown);
+  }
 }
 
 /**
@@ -428,7 +562,9 @@ export function createProgram(deps: ProgramDeps = {}): Command {
     .option("--json", "emit the raw report(s) as JSON")
     .option(
       "--fail-on <severity>",
-      "exit non-zero when a finding at or above this severity exists (high|medium|low|never)",
+      "exit non-zero when a finding at or above this severity exists (high|medium|low|never). " +
+        "high: unresolved or contradicted work a reviewer should see before merging. " +
+        "medium: a real issue with a plausible benign explanation. low: an unconfirmable claim.",
       "high",
     )
     .option("--disable <ruleId...>", "skip specific rules")
@@ -575,6 +711,211 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       const resetStore = deps.resetStore ?? (await lazy.reset()).resetStore;
       const result = resetStore(store);
       console.log(`Deleted ${result.sessionCount} session(s) and removed ${result.homeDir}.`);
+    });
+
+  program
+    .command("link [sessionId]")
+    .description("Link a session to the git commit(s) it plausibly produced")
+    .option("--all", "link every recorded session")
+    .option("--repo <dir>", "override the git repository directory (default: the session's recorded cwd)")
+    .option("--grace <minutes>", "how long after a session ends a commit still counts as its work (default: 30)")
+    .option("--json", "emit the raw link result(s) as JSON")
+    .action(async (sessionId: string | undefined, opts: LinkCliOptions) => {
+      const mod = await lazy.link();
+      const linkSession = deps.linkSession ?? mod.linkSession;
+      const linkAll = deps.linkAll ?? mod.linkAll;
+      const linkOptions: LinkCommandOptions = {
+        repoDir: opts.repo,
+        graceMinutes: opts.grace !== undefined ? Number(opts.grace) : undefined,
+      };
+
+      const store = createStore();
+      try {
+        if (opts.all) {
+          const { results, skipped } = linkAll(store, linkOptions);
+          if (opts.json) {
+            console.log(JSON.stringify(results));
+          } else {
+            for (const result of results) console.log(formatLinkResult(result));
+            if (skipped.length > 0) {
+              console.log(`\nSkipped ${skipped.length} session(s):`);
+              for (const s of skipped) console.log(`  ${s.sessionId}: ${s.reason}`);
+            }
+          }
+          return;
+        }
+
+        if (!sessionId) {
+          console.error("Provide a sessionId, or use --all to link every session.");
+          process.exitCode = 1;
+          return;
+        }
+
+        const result = linkSession(store, sessionId, linkOptions);
+        console.log(opts.json ? JSON.stringify(result) : formatLinkResult(result));
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 2;
+      } finally {
+        store.close();
+      }
+    });
+
+  program
+    .command("report")
+    .description("Assemble a portable findings report for a commit range and write it as a git note")
+    .option(
+      "--base <ref>",
+      "base of the commit range (default: merge-base with the default branch, or HEAD~1). " +
+        "With --read, also overrides which diff --format github filters annotations against, " +
+        "instead of the stored report's own range — use this to match the PR's actual base, " +
+        "which may differ from whatever range the note was generated against locally",
+    )
+    .option(
+      "--head <ref>",
+      "head of the commit range (default: HEAD). With --read, also overrides the diff head for --format github, same reasoning as --base",
+    )
+    .option("--output <path>", "write the report JSON to a file instead of a git note")
+    .option("--publish", "push the note to --remote after writing it (ignored with --output)")
+    .option("--remote <name>", "remote to push the note to with --publish", "origin")
+    .option(
+      "--fail-on <severity>",
+      "exit non-zero when a finding at or above this severity exists (high|medium|low|never)",
+      "high",
+    )
+    .option("--disable <ruleId...>", "skip specific rules")
+    .option("--json", "print the report as JSON instead of a human-readable summary")
+    .option("--read <sha>", "print the stored report note for <sha> instead of generating a new one")
+    .option(
+      "--format <fmt>",
+      "output format: json (default, respects --json/--output) or github (workflow-command annotations + $GITHUB_STEP_SUMMARY)",
+      "json",
+    )
+    .option(
+      "--max-annotations <n>",
+      `cap on emitted --format github annotations (default ${DEFAULT_MAX_ANNOTATIONS})`,
+    )
+    .option("--notes-ref <ref>", 'git-notes ref reports are written under and read from (default: "retrace")')
+    .action(async (opts: ReportCliOptions) => {
+      const failOnRaw = opts.failOn ?? "high";
+      if (!(FAIL_ON_VALUES as readonly string[]).includes(failOnRaw)) {
+        console.error(
+          `Invalid --fail-on value "${failOnRaw}" — expected one of: ${FAIL_ON_VALUES.join(", ")}.`,
+        );
+        process.exitCode = 2;
+        return;
+      }
+      const failOn = failOnRaw as Severity | "never";
+
+      const formatRaw = opts.format ?? "json";
+      if (!(REPORT_FORMAT_VALUES as readonly string[]).includes(formatRaw)) {
+        console.error(
+          `Invalid --format value "${formatRaw}" — expected one of: ${REPORT_FORMAT_VALUES.join(", ")}.`,
+        );
+        process.exitCode = 2;
+        return;
+      }
+      const format = formatRaw as (typeof REPORT_FORMAT_VALUES)[number];
+
+      let maxAnnotations: number | undefined;
+      if (opts.maxAnnotations !== undefined) {
+        maxAnnotations = Number(opts.maxAnnotations);
+        if (!Number.isInteger(maxAnnotations) || maxAnnotations < 0) {
+          console.error(`Invalid --max-annotations value "${opts.maxAnnotations}" — expected a non-negative integer.`);
+          process.exitCode = 2;
+          return;
+        }
+      }
+
+      const mod = await lazy.report();
+      const changedFilesInRange = deps.changedFilesInRange ?? mod.changedFilesInRange;
+
+      if (opts.read !== undefined) {
+        try {
+          const resolveRepoRoot = deps.resolveRepoRoot ?? mod.resolveRepoRoot;
+          const readReportNote = deps.readReportNote ?? mod.readReportNote;
+          const root = resolveRepoRoot(process.cwd());
+          const rawReport = readReportNote(root, opts.read, opts.notesRef);
+          if (!rawReport) {
+            console.log(`No Retrace report for ${opts.read} — nothing to check.`);
+            return;
+          }
+          const report = excludeDisabledRules(rawReport, opts.disable);
+          if (format === "github") {
+            // The stored note's own `range` reflects whatever base/head the
+            // developer had locally when they published it — not necessarily
+            // the PR's actual base. --base/--head override it here so the
+            // Action can pass the PR's real diff explicitly.
+            const diffRange = { base: opts.base ?? report.range.base, head: opts.head ?? report.range.head };
+            const { annotationLines, summaryMarkdown } = formatGithub(report, {
+              changedFiles: changedFilesInRange(root, diffRange),
+              maxAnnotations,
+            });
+            printGithubFormat(annotationLines, summaryMarkdown);
+          } else {
+            console.log(opts.json ? JSON.stringify(report) : formatReport(report));
+          }
+          if (mod.reportBreachesThreshold(report, failOn)) process.exitCode = 1;
+        } catch (err) {
+          console.error(err instanceof Error ? err.message : String(err));
+          process.exitCode = 2;
+        }
+        return;
+      }
+
+      const generateReport = deps.generateReport ?? mod.generateReport;
+      const writeReportNote = deps.writeReportNote ?? mod.writeReportNote;
+      const publishReportNote = deps.publishReportNote ?? mod.publishReportNote;
+      const checkOptions: CheckOptions = opts.disable ? { disabled: opts.disable } : {};
+
+      let store: RetraceStore;
+      try {
+        store = createStore();
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 2;
+        return;
+      }
+
+      try {
+        const result = generateReport(store, process.cwd(), {
+          base: opts.base,
+          head: opts.head,
+          checkOptions,
+        });
+
+        if (opts.output) {
+          writeFileSync(opts.output, JSON.stringify(result.report));
+        } else {
+          writeReportNote(result.repoRoot, result.headSha, result.report, opts.notesRef);
+          if (opts.publish) publishReportNote(result.repoRoot, opts.remote ?? "origin", opts.notesRef);
+        }
+
+        if (format === "github") {
+          const { annotationLines, summaryMarkdown } = formatGithub(result.report, {
+            changedFiles: changedFilesInRange(result.repoRoot, result.report.range),
+            maxAnnotations,
+          });
+          printGithubFormat(annotationLines, summaryMarkdown);
+        } else if (opts.json) {
+          console.log(JSON.stringify(result.report));
+        } else {
+          if (opts.output) {
+            console.log(`Wrote report to ${opts.output}`);
+          } else {
+            console.log(`Wrote report note for ${result.headSha} (ref: retrace)`);
+            if (opts.publish) console.log(`Pushed refs/notes/retrace to ${opts.remote ?? "origin"}`);
+          }
+          console.log(formatReport(result.report));
+        }
+
+        if (mod.reportBreachesThreshold(result.report, failOn)) process.exitCode = 1;
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 2;
+      } finally {
+        store.close();
+      }
     });
 
   return program;

@@ -12,6 +12,7 @@
     "build": "pnpm --filter retrace-core run build && pnpm --filter @retrace/viewer run build && pnpm --filter retrace-cli run build",
     "test": "pnpm -r run test",
     "verify:pack": "node scripts/verify-tarball.mjs",
+    "check:corpus": "node scripts/check-corpus.mjs",
     "lint": "eslint ."
   },
   "devDependencies": {

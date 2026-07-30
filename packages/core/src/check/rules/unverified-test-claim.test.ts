@@ -44,7 +44,7 @@ describe("unverified-test-claim", () => {
     expect(findings).toEqual([]);
   });
 
-  it("fires (medium) when the claim contradicts a recorded test failure", () => {
+  it("fires (high) when the claim contradicts a recorded test failure", () => {
     const findings = run([
       { kind: "file_change", payload: { path: "/repo/a.ts", operation: "edit", oldString: "x", newString: "y" } },
       { kind: "tool_call", payload: { toolName: "Bash", toolUseId: "t1", input: { command: "npm test" } } },
@@ -52,7 +52,7 @@ describe("unverified-test-claim", () => {
       { kind: "assistant_text", payload: { text: "All tests pass." } },
     ]);
     expect(findings).toHaveLength(1);
-    expect(findings[0]).toMatchObject({ severity: "medium", relatedSeqs: [0, 1] });
+    expect(findings[0]).toMatchObject({ severity: "high", relatedSeqs: [0, 1] });
   });
 
   it("does not fire when there is no file change and no claim (no-op session)", () => {

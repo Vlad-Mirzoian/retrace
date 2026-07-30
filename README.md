@@ -49,7 +49,11 @@ $ retrace check 36192c50
 ```
 
 Exits non-zero above the configured severity threshold (default `high`), so it also works as a CI
-gate.
+gate. `high` means the session ended with work in a state the agent's own account does not match and
+nothing in the record resolves it — a failed test/build run nothing ever responded to, or a claim that
+directly contradicts a recorded failure. `medium` is a real behavioral problem with a plausible benign
+explanation, worth a look but not worth blocking. `low` is a claim that couldn't be corroborated from
+the record — informational.
 
 ## Recording, replay and comparison
 
@@ -96,13 +100,15 @@ controls that machine can recompute it. External anchoring, which would change t
 | `retrace list` | List recorded sessions, most recent first. |
 | `retrace init [--global]` | Install Retrace's hooks into Claude Code settings (project-local by default, `--global` for `~/.claude/settings.json`). Backs up the existing file and preserves any hooks already there. |
 | `retrace ui [--port <port>] [--no-open] [--no-import]` | Serve the timeline viewer. Picks a free port by default and opens your browser; `--no-open` for headless use; `--no-import` skips the auto-import when the store is empty. |
-| `retrace check [sessionId] [--all] [--json] [--fail-on <severity>] [--disable <ruleId...>] [--list-rules]` | Run the check engine — catches edits to never-read files, unaddressed tool errors, unverified test/build claims, claimed file changes with no matching edit, and untracked Bash/PowerShell mutations. `--fail-on` (default `high`) sets the exit-1 severity threshold (`high\|medium\|low\|never`); `--json` prints the raw report for `jq`; `--list-rules` prints every rule with no store needed. Exit codes: `0` clean (or below threshold), `1` findings at or above the threshold, `2` operational failure (session not found, ambiguous prefix, store unreadable) — so CI can tell "the agent did something questionable" from "the check itself broke". |
+| `retrace check [sessionId] [--all] [--json] [--fail-on <severity>] [--disable <ruleId...>] [--list-rules]` | Run the check engine — catches edits to never-read files, unaddressed tool errors, unverified test/build claims, claimed file changes with no matching edit, and untracked Bash/PowerShell mutations (named to the file where resolvable, excluding stderr-to-null and stream-merge redirects like `2>/dev/null`/`2>&1`). `--fail-on` (default `high`) sets the exit-1 severity threshold (`high\|medium\|low\|never`) — `high` means unresolved or contradicted work a reviewer should see before merging, not a reclassification of everything else; `--json` prints the raw report for `jq`; `--list-rules` prints every rule with no store needed. Exit codes: `0` clean (or below threshold), `1` findings at or above the threshold, `2` operational failure (session not found, ambiguous prefix, store unreadable) — so CI can tell "the agent did something questionable" from "the check itself broke". |
 | `retrace export <sessionId> [--json] [--output <path>]` | Export a session — a self-contained HTML file by default, or `--json` for the raw data. |
 | `retrace reimport [sessionId] [--all]` | Delete a session's stored data and re-import it from its source transcript (for recovering after a parser-bug fix). `--all` re-imports every session with a known source. |
 | `retrace verify [sessionId] [--all]` | Verify a session's tamper-evident hash chain, printing `✓ verified` or `✗ tampered at seq N`. Exits non-zero on any failure. |
 | `retrace compare <sessionIdA> <sessionIdB> [--port <port>] [--no-open]` | Open the viewer's side-by-side comparison of two recorded sessions — aligned event-by-event, plus a diff of each run's final working tree. |
 | `retrace delete <sessionId...> [--yes]` | Permanently delete one or more sessions (their events and on-disk data). Prompts for confirmation unless `--yes` is given. CAS snapshots aren't reclaimed — that needs `retrace reset`. |
 | `retrace reset [--yes]` | Permanently wipe the entire store — every session and every CAS object, all of `~/.retrace` (or `$RETRACE_HOME`). Prompts for confirmation unless `--yes` is given. |
+| `retrace link [sessionId] [--all] [--repo <dir>] [--grace <minutes>] [--json]` | Link a session to the git commit(s) it plausibly produced — inferred from repo, timing, and touched-file overlap, never written to the commit itself. `--repo` overrides the session's recorded working directory; `--grace` (default 30) is how many minutes after a session ends a commit still counts as its work. |
+| `retrace report [--base <ref>] [--head <ref>] [--output <path>] [--publish] [--remote <name>] [--fail-on <severity>] [--disable <ruleId...>] [--json] [--read <sha>] [--format <json\|github>] [--max-annotations <n>] [--notes-ref <ref>]` | Assemble a portable findings report for a commit range (default: merge-base with the default branch, or `HEAD~1`, through `HEAD`) and write it as a git note on the head commit — see [Getting the report to CI](#getting-the-report-to-ci) below. `--output` writes a file instead of a note; `--publish` also pushes the note; `--read <sha>` prints back a stored note instead of generating one (what CI uses — it never has a store to check against; `--base`/`--head` with `--read` override the diff `--format github` filters against, since the note's own range may not match the PR's; `--disable` also applies here, dropping that rule's findings from the printed report and the `--fail-on` check). `--format github` prints GitHub Actions annotations and a markdown job summary instead of JSON — see [CI output format](#ci-output-format) below and [Use it in CI](#use-it-in-ci) for the packaged Action. `--notes-ref` (default `retrace`) picks which git-notes ref to read/write, for a repo that already uses the default one for something else. Same exit-code contract as `retrace check`. |
 | `retrace hook` | Internal: invoked by the hooks `retrace init` installs, reading a Claude Code hook payload from stdin. Not meant to be run by hand. |
 
 ## How it works
@@ -132,6 +138,108 @@ reasoning — so any body over 8 KB is moved into the content-addressed store an
 which also collapses repeats (the same file read twice) to a single object. Reads restore it
 transparently, and because the hash is taken over the real body rather than the reference, swapping
 a stored object out still breaks verification.
+
+## Getting the report to CI
+
+CI has no access to `~/.retrace` — there is no store on the runner, and there never will be. So
+`retrace report` writes its findings to **`refs/notes/retrace`**, keyed by the head commit's SHA. Notes
+live outside the commit object, so they survive rebase, squash, amend, and cherry-pick, and they never
+touch the commit message.
+
+**The catch, stated plainly: git does not push or fetch notes by default.** This is real friction, and
+mitigating it is most of what makes this transport usable at all:
+
+1. `retrace report --publish` pushes the note itself in the same command, so you run one command, not
+   two. Otherwise, push it yourself:
+   ```bash
+   git push origin refs/notes/retrace
+   ```
+   A `post-commit` hook or a git alias is a natural place to automate this — Retrace does not install
+   one for you (`retrace init` already asks for a decent amount of trust by editing your Claude Code
+   settings; reaching into your git hooks on top of that, unasked, is a step further than it should take).
+2. On CI's side, fetch the note before reading it:
+   ```bash
+   git fetch origin refs/notes/retrace:refs/notes/retrace
+   retrace report --read "$(git rev-parse HEAD)"
+   ```
+3. **If your workflow can't or won't push notes**, use the file fallback instead —
+   `retrace report --output report.json` writes the identical JSON to a file you can commit to the
+   branch or upload as a build artifact. This is not a lesser option; if notes prove unworkable in your
+   setup, make the file the norm rather than fighting the transport.
+
+A rebase is worth understanding concretely: the note stays attached to the *original* commit SHA (still
+readable there, as long as that object hasn't been garbage-collected), but the rebase produces a **new**
+SHA that has no note of its own. A report generated before a rebase does not carry forward automatically
+— re-run `retrace report` (and `--publish`, or re-commit the output file) after rebasing.
+
+## Use it in CI
+
+A composite GitHub Action ([`action.yml`](action.yml)) posts Retrace's findings on the PR itself —
+inline annotations on the changed files, plus a job summary. No GitHub App install, no
+`checks: write` permission, no PAT: it runs as workflow commands on stdout, which need nothing beyond
+`contents: read`.
+
+```yaml
+on: pull_request
+
+permissions:
+  contents: read # nothing more is needed — no checks:write, no PAT, no GitHub App
+
+jobs:
+  retrace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history — the action diffs base...head and fetches git notes
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22" # node:sqlite (used by retrace-cli) needs >=22.5
+
+      - uses: Vlad-Mirzoian/retrace@v0
+```
+
+**This check is not required by default, and the recommendation is not to make it one — see
+["Should I make this required?"](docs/ci.md#should-i-make-this-required) in the full setup guide
+before changing that.** A required check means one false positive blocks a merge; that is exactly
+the failure mode that gets a tool like this removed.
+
+The Action needs a report to have been published first (`retrace report --publish` — see
+[Getting the report to CI](#getting-the-report-to-ci) above); until then, it prints a neutral
+message and exits 0 rather than failing. That is expected on a fresh install, not a sign anything is
+broken. Full setup, inputs (`fail-on`, `max-annotations`, `disable`, `notes-ref`, `version`), and
+tuning guidance live in **[docs/ci.md](docs/ci.md)**.
+
+## CI output format
+
+`retrace report --format github` turns a report into the two things a GitHub Actions job can display:
+
+- **Inline annotations** — one `::warning file=…,line=…,title=…::message` [workflow command](https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions)
+  per finding, printed to stdout. These need **no token, no `checks: write` permission, and no GitHub
+  App install** — they attach to the job's own check rather than a separate Check Run, which is the
+  trade that keeps this usable without an org-admin approval step. Severity maps to level (`high` →
+  `error`, `medium` → `warning`, `low` → `notice`), but **the level is cosmetic** — an `error`
+  annotation does not fail the job by itself. Only the process's exit code does that, governed by
+  `--fail-on` exactly as it is for JSON output. A finding can only be annotated when its path resolves
+  to a file inside the commit range's diff — Retrace does not fabricate a line number (findings anchor
+  to a session event, not a source line, so every annotation lands on line 1) or guess at a file the
+  diff doesn't show. Everything else stays in the summary. Annotations are capped at 20 by default
+  (`--max-annotations`); a truncated list says so in the summary rather than silently dropping findings.
+- **A markdown job summary** — written to `$GITHUB_STEP_SUMMARY` when a workflow sets it (the standard
+  way to add content to a job's summary tab), falling back to stdout otherwise so the command stays
+  usable and inspectable locally. It lists every finding as a table (including ones that couldn't be
+  annotated, with a note explaining why), names any rule that failed to run, and closes with the local
+  command — `retrace ui` — and session id(s) to inspect a finding in full context. **No transcript
+  content, reasoning, or diffs ever appear in it** — deliberately: reviewers reading agent PRs do not
+  want session context in the review, they want to know what changed and whether it's trustworthy.
+
+```bash
+retrace report --format github --fail-on high
+```
+
+This is what [the Action above](#use-it-in-ci) runs under the hood; call it directly instead if
+you're wiring your own workflow rather than using `action.yml` as-is.
 
 ## Development
 
@@ -171,20 +279,26 @@ See [RELEASING.md](RELEASING.md) for the publish process.
 Shipped: recording (transcript import + live hooks), the check engine and `retrace check` (edits to
 never-read files, unaddressed tool errors, unverified test/build claims, claimed changes with no
 matching edit, untracked shell mutations), findings surfaced in the API and viewer, a local store
-with a tamper-evident hash chain, and full recording-side replay — step-through playback,
-working-tree reconstruction, failure localization with causal traces, and side-by-side run
-comparison.
+with a tamper-evident hash chain, full recording-side replay (step-through playback, working-tree
+reconstruction, failure localization with causal traces, side-by-side run comparison), session ↔
+commit linkage (`retrace link`), a portable findings report transported via git notes (`retrace
+report`, [Getting the report to CI](#getting-the-report-to-ci)), and a GitHub Action that posts those
+findings on the PR itself with no required install ([Use it in CI](#use-it-in-ci)) — the full sequence
+from a locally-tuned check engine to findings on a stranger's PR.
 
-- **Next: session ↔ commit/PR provenance.** Link findings to the commits they came from, emit the
-  Linux-kernel `Assisted-by:` trailer, and interoperate with the
-  [`cursor/agent-trace`](https://github.com/cursor/agent-trace) spec — which deliberately excludes
-  tool calls and reasoning, so it complements rather than competes with what Retrace records.
-- **After: cross-session forensics.** The store already indexes every session; the viewer only
-  ever renders one at a time.
+- **Next: cross-session forensics.** The store already indexes every session; the viewer only ever
+  renders one at a time.
 - **Later: external chain anchoring and signing**, for when the tamper-evidence claim needs to hold
   against someone who controls the machine, not just casual or accidental tampering.
 - **Explicitly not planned:** cost/token analytics (`ccusage`, Anthropic's Analytics API, and native
-  OpenTelemetry all cover it already), multi-agent adapters, and cloud storage.
+  OpenTelemetry all cover it already), multi-agent adapters, cloud storage, and the Linux-kernel
+  `Assisted-by:` trailer / [`cursor/agent-trace`](https://github.com/cursor/agent-trace) interop. An
+  earlier version of this roadmap listed both of the latter as "next" — the evidence changed:
+  `Assisted-by:` is under active deletion discussion in the kernel as of this writing (it would also
+  duplicate Claude Code's own trailer), and `agent-trace` has been frozen at a v0.1.0 RFC for six
+  months with no confirmed production producer or consumer. The session ↔ commit linkage underneath
+  both proposals was worth building on its own; conforming to unstable external standards on top of
+  it was not.
 
 ## License
 

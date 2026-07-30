@@ -1,0 +1,87 @@
+name: Retrace check
+description: >-
+  Surface what a coding agent did on this PR that its own account does not match — files edited
+  without being read, tool errors nothing responded to, test claims with no test run behind them,
+  claimed changes with no matching edit, shell mutations nothing tracked. Findings only, never
+  transcript content. Not required by default.
+
+inputs:
+  fail-on:
+    description: >-
+      Exit non-zero when a finding at or above this severity exists (high|medium|low|never).
+      Only changes anything if you also mark this check required in branch protection — see the
+      README before doing that.
+    default: "high"
+  max-annotations:
+    description: >-
+      Cap on inline annotations posted to the diff. A truncated list is noted in the job summary,
+      never silently dropped.
+    default: "20"
+  disable:
+    description: 'Space-separated rule ids to skip (e.g. "unverified-test-claim edit-without-read").'
+    default: ""
+  notes-ref:
+    description: >-
+      git-notes ref the report was published under. Match whatever `retrace report --notes-ref`
+      used on the developer's side, if it was changed from the default.
+    default: "retrace"
+  version:
+    description: >-
+      retrace-cli version to run, passed to `npx retrace-cli@<version>`. Pinned by default so an
+      Action run doesn't change behavior under you without a deliberate version bump — bump this
+      input yourself when you want the update, rather than tracking "latest".
+    default: "0.4.0"
+
+runs:
+  using: composite
+  steps:
+    # This action's whole purpose is a PR annotation; running it outside a
+    # pull_request event would read `github.event.pull_request` as empty and
+    # fail confusingly further down. Fail clearly here instead.
+    - name: Require a pull_request event
+      if: github.event_name != 'pull_request'
+      shell: bash
+      run: |
+        echo "::error::Retrace check only runs on pull_request events (got '${{ github.event_name }}')."
+        exit 1
+
+    # The single biggest adoption risk in this whole action: most installs
+    # will hit this on their very first run, because nobody has published a
+    # note yet. `git fetch` on a ref that doesn't exist on the remote fails —
+    # tolerate that here so it reads as "nothing to check yet", not a broken
+    # action. Also covers a shallow checkout that never fetched notes at all.
+    - name: Fetch the report notes ref (tolerating a repo with no report published yet)
+      shell: bash
+      env:
+        NOTES_REF: ${{ inputs.notes-ref }}
+      run: |
+        git fetch origin "refs/notes/$NOTES_REF:refs/notes/$NOTES_REF" 2>/dev/null || \
+          echo "No refs/notes/$NOTES_REF on origin yet — this is expected until a report is published."
+
+    # `retrace report --read` already prints a neutral, exit-0 message when
+    # no note exists for this sha — reused as-is rather than duplicating that
+    # check here. Env vars, not inline `${{ }}` expressions, carry every
+    # input into the shell: standard GitHub Actions guidance for anything
+    # that lands in a `run:` block, so a value can never be read as more
+    # shell than it is.
+    - name: Run retrace report --format github
+      shell: bash
+      env:
+        RETRACE_VERSION: ${{ inputs.version }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        MAX_ANNOTATIONS: ${{ inputs.max-annotations }}
+        NOTES_REF: ${{ inputs.notes-ref }}
+        DISABLE_RULES: ${{ inputs.disable }}
+      run: |
+        args=(report --read "$HEAD_SHA" --base "$BASE_SHA" --head "$HEAD_SHA" --format github \
+          --fail-on "$FAIL_ON" --max-annotations "$MAX_ANNOTATIONS" --notes-ref "$NOTES_REF")
+        if [ -n "$DISABLE_RULES" ]; then
+          # Intentionally unquoted: DISABLE_RULES is a maintainer-configured
+          # workflow input (space-separated rule ids), not PR-supplied
+          # content, and commander's --disable expects each id as its own
+          # argument.
+          args+=(--disable $DISABLE_RULES)
+        fi
+        npx --yes "retrace-cli@$RETRACE_VERSION" "${args[@]}"

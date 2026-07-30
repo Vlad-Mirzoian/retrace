@@ -3,9 +3,9 @@ import type { RetraceEvent } from "../schema.js";
 /**
  * The one place natural-language claim-matching lives, so the heuristics are
  * auditable and testable in isolation rather than scattered across rules.
- * Deliberately conservative — see plan/module-05-claim-rules.md's "honest
- * caveat": a missed claim is preferable to a false one, so the pattern list
- * stays short and literal rather than trying to generalize.
+ * Deliberately conservative — a missed claim is preferable to a false one,
+ * so the pattern list stays short and literal rather than trying to
+ * generalize.
  */
 
 export interface ExtractedClaim {
@@ -61,8 +61,7 @@ const MODIFICATION_VERB =
  * separator alone (an earlier version of this pattern did) turned out to
  * false-positive heavily on ordinary slash phrases with no extension —
  * "try/catch", "npm/PyPI", "feature/thesis-alignment" (a branch name) — when
- * checked against real sessions. See this module's completion note in
- * plan/module-05-claim-rules.md.
+ * checked against real sessions.
  *
  * The final segment allows dots (`[\w.-]+`, not `[\w-]+`) so a multi-dot
  * filename like `parse.test.ts` or `index.d.ts` is captured whole rather
@@ -88,8 +87,7 @@ function matchSentence(sentence: string): Array<Pick<ExtractedClaim, "kind" | "s
   // list, a code block) rather than asserting a completed fact on its own —
   // "Now the full build + test pass:" is a header for the verification about
   // to run, not a claim that it already did. Confirmed as a real
-  // false-positive source against actual sessions (see this module's
-  // completion note in plan/module-05-claim-rules.md).
+  // false-positive source against actual sessions.
   if (sentence.trim().endsWith(":")) return [];
 
   if (INTENT_GUARD.test(sentence) || RELAY_GUARD.test(sentence) || NEGATION_GUARD.test(sentence)) {

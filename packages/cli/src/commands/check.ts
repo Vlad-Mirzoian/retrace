@@ -45,8 +45,8 @@ export function breachesThreshold(report: CheckReport, threshold: Severity | "ne
 /**
  * Run the check engine over every recorded session. A session lands in
  * `failed` when {@link breachesThreshold} says so for `failOn` (default
- * `"high"`, matching module 04's only `high`-severity rule so adopting this
- * gate doesn't immediately break builds on module 05's heuristic rules).
+ * `"high"` — see the `Severity` doc comment in `retrace-core`'s
+ * `check/types.ts` for what that threshold means).
  */
 export function checkAll(
   store: RetraceStore,

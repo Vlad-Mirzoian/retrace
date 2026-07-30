@@ -103,14 +103,15 @@ describe("checkAll", () => {
     expect(summary.failed).toEqual([]);
   });
 
-  it("defaults to a 'high' threshold, matching module 04's only high-severity rule", () => {
+  it("defaults to a 'high' threshold, which flagged-session.jsonl now breaches", () => {
     const path = fixturePath("flagged-session.jsonl");
-    importFile(store, path);
+    const imported = importFile(store, path);
 
-    // flagged-session.jsonl's findings are all medium/low, so the default
-    // (high) threshold does not flag it as failed.
+    // flagged-session.jsonl has an unaddressed failed test/build command
+    // (unaddressed-error, high) — module 02's severity model — so the
+    // default (high) threshold flags it as failed.
     const summary = checkAll(store);
-    expect(summary.failed).toEqual([]);
+    expect(summary.failed.map((r) => r.sessionId)).toEqual([imported.sessionId]);
   });
 });
 

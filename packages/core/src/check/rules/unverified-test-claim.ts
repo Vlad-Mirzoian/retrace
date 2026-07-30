@@ -41,7 +41,7 @@ function subjectLabel(kind: ExtractedClaim["kind"]): string {
 export const unverifiedTestClaimRule: CheckRule = {
   id: "unverified-test-claim",
   description:
-    "The assistant claimed tests or the build pass, but no matching test/build command ran after the last file change. Contradicting a recorded failure is a stronger (medium) finding; an absent verification is a weaker (low) one.",
+    "The assistant claimed tests or the build pass, but no matching test/build command ran after the last file change. Directly contradicting a recorded failure is a high finding; an absent verification is a low one.",
   defaultSeverity: "low",
   run(events: RetraceEvent[]): CheckFinding[] {
     const claims = extractClaims(events).filter(
@@ -76,8 +76,7 @@ export const unverifiedTestClaimRule: CheckRule = {
           // written *after* a real test run as the last step of a turn, and
           // don't invalidate the verification that already happened —
           // confirmed against real sessions, where this was the single
-          // largest source of false positives (see the module's completion
-          // note in plan/module-05-claim-rules.md).
+          // largest source of false positives.
           if (!event.payload.path.toLowerCase().endsWith(".md")) {
             testCall = undefined;
           }
@@ -98,7 +97,9 @@ export const unverifiedTestClaimRule: CheckRule = {
         if (result && !result.isError) continue; // actually verified — no finding
 
         relatedSeqs.push(testCall.seq);
-        const severity: Severity = result?.isError ? "medium" : "low";
+        // A direct contradiction between the claim and the recorded run —
+        // the cleanest instance of the Severity contract's `high`.
+        const severity: Severity = result?.isError ? "high" : "low";
         const subject = subjectLabel(claim.kind);
         findings.push({
           ruleId: "unverified-test-claim",

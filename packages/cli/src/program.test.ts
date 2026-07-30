@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RetraceStore } from "retrace-core";
+import { RetraceStore, type RetraceReport } from "retrace-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ImportSummary, WatchHandle } from "./commands/import.js";
 import type { InitResult } from "./commands/init.js";
@@ -13,6 +14,7 @@ import type { VerifyAllSummary, VerifyResult } from "./commands/verify.js";
 import type { CheckAllSummary, CheckSessionResult } from "./commands/check.js";
 import type { DeleteSessionsSummary } from "./commands/delete.js";
 import type { ResetResult } from "./commands/reset.js";
+import type { GenerateReportResult } from "./commands/report.js";
 import { createProgram } from "./program.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -809,5 +811,457 @@ describe("createProgram — reset", () => {
 
     expect(resetStore).toHaveBeenCalledTimes(1);
     expect(output()).toMatch(/deleted 0 session\(s\)/i);
+  });
+});
+
+describe("createProgram — report", () => {
+  function report(
+    findings: RetraceReport["findings"] = [],
+    overrides: Partial<RetraceReport> = {},
+  ): RetraceReport {
+    return {
+      version: 1,
+      generatedAt: "2026-07-15T14:37:00.000Z",
+      tool: { name: "retrace", version: "0.4.0" },
+      range: { base: "main", head: "abc123" },
+      sessions: findings.length > 0 ? [{ id: "sess-1", startedAt: null, endedAt: null, commits: ["abc123"], confidence: "exact" }] : [],
+      findings,
+      rulesRun: ["unaddressed-error"],
+      rulesSkipped: [],
+      ...overrides,
+    };
+  }
+
+  function generateResult(r: RetraceReport): GenerateReportResult {
+    return { report: r, repoRoot: "/repo", headSha: "abc123", baseRef: "main" };
+  }
+
+  it("writes a note and exits 0 for a clean report", async () => {
+    const generateReport = vi.fn().mockReturnValue(generateResult(report([])));
+    const writeReportNote = vi.fn();
+
+    const program = createProgram({ createStore: () => store, generateReport, writeReportNote });
+    await program.parseAsync(["node", "retrace", "report"]);
+
+    expect(writeReportNote).toHaveBeenCalledWith("/repo", "abc123", report([]), undefined);
+    expect(output()).toMatch(/wrote report note for abc123/i);
+    expect(output()).toMatch(/no findings/i);
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it("sets exit code 1 when a finding meets the default (high) threshold", async () => {
+    const withHigh = report([
+      { ruleId: "unaddressed-error", severity: "high", title: "x", seq: 1, sessionId: "sess-1" },
+    ]);
+    const generateReport = vi.fn().mockReturnValue(generateResult(withHigh));
+    const writeReportNote = vi.fn();
+
+    const program = createProgram({ createStore: () => store, generateReport, writeReportNote });
+    await program.parseAsync(["node", "retrace", "report"]);
+
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
+  });
+
+  it("does not breach for a medium finding against the default (high) threshold", async () => {
+    const withMedium = report([
+      { ruleId: "edit-without-read", severity: "medium", title: "x", seq: 1, sessionId: "sess-1" },
+    ]);
+    const generateReport = vi.fn().mockReturnValue(generateResult(withMedium));
+    const writeReportNote = vi.fn();
+
+    const program = createProgram({ createStore: () => store, generateReport, writeReportNote });
+    await program.parseAsync(["node", "retrace", "report"]);
+
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it("exits 0 with --fail-on never even when a high finding is present", async () => {
+    const withHigh = report([
+      { ruleId: "unaddressed-error", severity: "high", title: "x", seq: 1, sessionId: "sess-1" },
+    ]);
+    const generateReport = vi.fn().mockReturnValue(generateResult(withHigh));
+    const writeReportNote = vi.fn();
+
+    const program = createProgram({ createStore: () => store, generateReport, writeReportNote });
+    await program.parseAsync(["node", "retrace", "report", "--fail-on", "never"]);
+
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it("writes to --output instead of a note, with the same JSON a note would carry", async () => {
+    const generateReport = vi.fn().mockReturnValue(generateResult(report([])));
+    const writeReportNote = vi.fn();
+    const outputPath = join(home, "out.json");
+
+    const program = createProgram({ createStore: () => store, generateReport, writeReportNote });
+    await program.parseAsync(["node", "retrace", "report", "--output", outputPath]);
+
+    expect(writeReportNote).not.toHaveBeenCalled();
+    expect(JSON.parse(readFileSync(outputPath, "utf8"))).toEqual(report([]));
+  });
+
+  it("publishes the note when --publish is given", async () => {
+    const generateReport = vi.fn().mockReturnValue(generateResult(report([])));
+    const writeReportNote = vi.fn();
+    const publishReportNote = vi.fn();
+
+    const program = createProgram({ createStore: () => store, generateReport, writeReportNote, publishReportNote });
+    await program.parseAsync(["node", "retrace", "report", "--publish", "--remote", "upstream"]);
+
+    expect(publishReportNote).toHaveBeenCalledWith("/repo", "upstream", undefined);
+  });
+
+  it("threads --notes-ref through to writeReportNote, publishReportNote, and readReportNote", async () => {
+    const generateReport = vi.fn().mockReturnValue(generateResult(report([])));
+    const writeReportNote = vi.fn();
+    const publishReportNote = vi.fn();
+
+    const program = createProgram({ createStore: () => store, generateReport, writeReportNote, publishReportNote });
+    await program.parseAsync(["node", "retrace", "report", "--publish", "--notes-ref", "custom-ref"]);
+
+    expect(writeReportNote).toHaveBeenCalledWith("/repo", "abc123", report([]), "custom-ref");
+    expect(publishReportNote).toHaveBeenCalledWith("/repo", "origin", "custom-ref");
+
+    const resolveRepoRoot = vi.fn().mockReturnValue("/repo");
+    const readReportNote = vi.fn().mockReturnValue(undefined);
+    const readProgram = createProgram({ createStore: () => store, resolveRepoRoot, readReportNote });
+    await readProgram.parseAsync(["node", "retrace", "report", "--read", "abc123", "--notes-ref", "custom-ref"]);
+
+    expect(readReportNote).toHaveBeenCalledWith("/repo", "abc123", "custom-ref");
+  });
+
+  it("exits 2 with a clear message, not a crash, outside a git repository", async () => {
+    const generateReport = vi.fn().mockImplementation(() => {
+      throw new Error("/some/dir is not inside a git repository");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram({ createStore: () => store, generateReport });
+    await program.parseAsync(["node", "retrace", "report"]);
+
+    expect(process.exitCode).toBe(2);
+    expect(errorSpy.mock.calls.join("\n")).toMatch(/not inside a git repository/);
+
+    errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
+
+  it("rejects an invalid --fail-on value with exit code 2, without generating a report", async () => {
+    const generateReport = vi.fn();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram({ createStore: () => store, generateReport });
+    await program.parseAsync(["node", "retrace", "report", "--fail-on", "catastrophic"]);
+
+    expect(generateReport).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(2);
+    expect(errorSpy.mock.calls.join("\n")).toMatch(/invalid --fail-on/i);
+
+    errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
+
+  it("exits 2 with a clear message, not exit 1 from an uncaught exception, when the store can't be opened", async () => {
+    const generateReport = vi.fn();
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram({
+      createStore: () => {
+        throw new Error("unable to open database file");
+      },
+      generateReport,
+    });
+    await program.parseAsync(["node", "retrace", "report"]);
+
+    expect(generateReport).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(2);
+    expect(errorSpy.mock.calls.join("\n")).toMatch(/unable to open database file/);
+
+    errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
+
+  describe("--read", () => {
+    it("prints a stored report and applies the same exit-code contract", async () => {
+      const withHigh = report([
+        { ruleId: "unaddressed-error", severity: "high", title: "x", seq: 1, sessionId: "sess-1" },
+      ]);
+      const resolveRepoRoot = vi.fn().mockReturnValue("/repo");
+      const readReportNote = vi.fn().mockReturnValue(withHigh);
+
+      const program = createProgram({ createStore: () => store, resolveRepoRoot, readReportNote });
+      await program.parseAsync(["node", "retrace", "report", "--read", "abc123"]);
+
+      expect(readReportNote).toHaveBeenCalledWith("/repo", "abc123", undefined);
+      expect(process.exitCode).toBe(1);
+      process.exitCode = 0;
+    });
+
+    it("exits 0 with a neutral message when no note is found for the sha", async () => {
+      const resolveRepoRoot = vi.fn().mockReturnValue("/repo");
+      const readReportNote = vi.fn().mockReturnValue(undefined);
+
+      const program = createProgram({ createStore: () => store, resolveRepoRoot, readReportNote });
+      await program.parseAsync(["node", "retrace", "report", "--read", "abc123"]);
+
+      expect(output()).toMatch(/no retrace report for abc123 — nothing to check/i);
+      expect(process.exitCode).toBeFalsy();
+    });
+
+    it("does not touch the store at all", async () => {
+      const resolveRepoRoot = vi.fn().mockReturnValue("/repo");
+      const readReportNote = vi.fn().mockReturnValue(undefined);
+      const createStore = vi.fn().mockReturnValue(store);
+
+      const program = createProgram({ createStore, resolveRepoRoot, readReportNote });
+      await program.parseAsync(["node", "retrace", "report", "--read", "abc123"]);
+
+      expect(createStore).not.toHaveBeenCalled();
+    });
+
+    it("--disable drops that rule's findings from both the printed report and the --fail-on breach check", async () => {
+      const withMixed = report([
+        { ruleId: "unaddressed-error", severity: "high", title: "keep me", seq: 1, sessionId: "sess-1" },
+        { ruleId: "edit-without-read", severity: "high", title: "drop me", seq: 2, sessionId: "sess-1" },
+      ]);
+      const resolveRepoRoot = vi.fn().mockReturnValue("/repo");
+      const readReportNote = vi.fn().mockReturnValue(withMixed);
+
+      const program = createProgram({ createStore: () => store, resolveRepoRoot, readReportNote });
+      await program.parseAsync([
+        "node",
+        "retrace",
+        "report",
+        "--read",
+        "abc123",
+        "--json",
+        "--disable",
+        "edit-without-read",
+      ]);
+
+      const printed = JSON.parse(output()) as RetraceReport;
+      expect(printed.findings.map((f) => f.ruleId)).toEqual(["unaddressed-error"]);
+      process.exitCode = 0;
+    });
+
+    it("--disable can bring a --read report below the --fail-on threshold entirely", async () => {
+      const onlyDisabledRuleBreaches = report([
+        { ruleId: "edit-without-read", severity: "high", title: "the only high finding", seq: 1, sessionId: "sess-1" },
+      ]);
+      const resolveRepoRoot = vi.fn().mockReturnValue("/repo");
+      const readReportNote = vi.fn().mockReturnValue(onlyDisabledRuleBreaches);
+
+      const program = createProgram({ createStore: () => store, resolveRepoRoot, readReportNote });
+      await program.parseAsync(["node", "retrace", "report", "--read", "abc123", "--disable", "edit-without-read"]);
+
+      expect(process.exitCode).toBeFalsy();
+    });
+  });
+
+  describe("--format github", () => {
+    afterEach(() => {
+      delete process.env.GITHUB_STEP_SUMMARY;
+    });
+
+    it("prints only workflow-command annotation lines to stdout and writes the summary to $GITHUB_STEP_SUMMARY", async () => {
+      const withFinding = report([
+        { ruleId: "unaddressed-error", severity: "high", title: "boom", seq: 1, sessionId: "sess-1", repoPath: "src/a.ts" },
+      ]);
+      const generateReport = vi.fn().mockReturnValue(generateResult(withFinding));
+      const changedFilesInRange = vi.fn().mockReturnValue(undefined);
+      const summaryPath = join(home, "summary.md");
+      process.env.GITHUB_STEP_SUMMARY = summaryPath;
+
+      const program = createProgram({
+        createStore: () => store,
+        generateReport,
+        writeReportNote: vi.fn(),
+        changedFilesInRange,
+      });
+      await program.parseAsync(["node", "retrace", "report", "--format", "github", "--fail-on", "never"]);
+
+      expect(output()).toBe("::error file=src/a.ts,line=1,title=boom::boom");
+      const summary = readFileSync(summaryPath, "utf8");
+      expect(summary).toContain("Retrace findings");
+      expect(summary).toContain("boom");
+    });
+
+    it("falls back to printing the summary to stdout when $GITHUB_STEP_SUMMARY isn't set", async () => {
+      const withFinding = report([
+        { ruleId: "unaddressed-error", severity: "low", title: "note", seq: 1, sessionId: "sess-1", repoPath: "a.ts" },
+      ]);
+      const generateReport = vi.fn().mockReturnValue(generateResult(withFinding));
+      const changedFilesInRange = vi.fn().mockReturnValue(undefined);
+
+      const program = createProgram({
+        createStore: () => store,
+        generateReport,
+        writeReportNote: vi.fn(),
+        changedFilesInRange,
+      });
+      await program.parseAsync(["node", "retrace", "report", "--format", "github", "--fail-on", "never"]);
+
+      expect(output()).toContain("::notice file=a.ts,line=1,title=note::note");
+      expect(output()).toContain("Retrace findings");
+    });
+
+    it("filters annotations to the changed-files list returned by changedFilesInRange", async () => {
+      const withFindings = report([
+        { ruleId: "unaddressed-error", severity: "medium", title: "in diff", seq: 1, sessionId: "sess-1", repoPath: "src/in.ts" },
+        { ruleId: "unaddressed-error", severity: "medium", title: "outside diff", seq: 2, sessionId: "sess-1", repoPath: "src/out.ts" },
+      ]);
+      const generateReport = vi.fn().mockReturnValue(generateResult(withFindings));
+      const changedFilesInRange = vi.fn().mockReturnValue(["src/in.ts"]);
+
+      const program = createProgram({
+        createStore: () => store,
+        generateReport,
+        writeReportNote: vi.fn(),
+        changedFilesInRange,
+      });
+      await program.parseAsync(["node", "retrace", "report", "--format", "github", "--fail-on", "never"]);
+
+      expect(output()).toContain("title=in diff");
+      expect(output()).not.toContain("title=outside diff");
+      expect(changedFilesInRange).toHaveBeenCalledWith("/repo", withFindings.range);
+    });
+
+    it("respects --max-annotations", async () => {
+      const findings = Array.from({ length: 5 }, (_, i) => ({
+        ruleId: "unaddressed-error",
+        severity: "low" as const,
+        title: `finding ${i}`,
+        seq: i,
+        sessionId: "sess-1",
+        repoPath: `f${i}.ts`,
+      }));
+      const generateReport = vi.fn().mockReturnValue(generateResult(report(findings)));
+      const changedFilesInRange = vi.fn().mockReturnValue(undefined);
+
+      const program = createProgram({
+        createStore: () => store,
+        generateReport,
+        writeReportNote: vi.fn(),
+        changedFilesInRange,
+      });
+      await program.parseAsync([
+        "node",
+        "retrace",
+        "report",
+        "--format",
+        "github",
+        "--max-annotations",
+        "2",
+        "--fail-on",
+        "never",
+      ]);
+
+      const annotationLines = output().split("\n").filter((line) => line.startsWith("::"));
+      expect(annotationLines).toHaveLength(2);
+    });
+
+    it("rejects an invalid --format value with exit code 2", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const generateReport = vi.fn();
+
+      const program = createProgram({ createStore: () => store, generateReport });
+      await program.parseAsync(["node", "retrace", "report", "--format", "yaml"]);
+
+      expect(generateReport).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(2);
+      expect(errorSpy.mock.calls.join("\n")).toMatch(/invalid --format/i);
+
+      errorSpy.mockRestore();
+      process.exitCode = 0;
+    });
+
+    it("rejects a non-numeric --max-annotations value with exit code 2", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const generateReport = vi.fn();
+
+      const program = createProgram({ createStore: () => store, generateReport });
+      await program.parseAsync(["node", "retrace", "report", "--max-annotations", "not-a-number"]);
+
+      expect(generateReport).not.toHaveBeenCalled();
+      expect(process.exitCode).toBe(2);
+      expect(errorSpy.mock.calls.join("\n")).toMatch(/invalid --max-annotations/i);
+
+      errorSpy.mockRestore();
+      process.exitCode = 0;
+    });
+
+    it("also formats as github for --read", async () => {
+      const withFinding = report([
+        { ruleId: "unaddressed-error", severity: "medium", title: "from a note", seq: 1, sessionId: "sess-1", repoPath: "a.ts" },
+      ]);
+      const resolveRepoRoot = vi.fn().mockReturnValue("/repo");
+      const readReportNote = vi.fn().mockReturnValue(withFinding);
+      const changedFilesInRange = vi.fn().mockReturnValue(undefined);
+
+      const program = createProgram({
+        createStore: () => store,
+        resolveRepoRoot,
+        readReportNote,
+        changedFilesInRange,
+      });
+      await program.parseAsync(["node", "retrace", "report", "--read", "abc123", "--format", "github", "--fail-on", "never"]);
+
+      expect(output()).toContain("::warning file=a.ts,line=1,title=from a note::from a note");
+    });
+
+    it("with --read, --base/--head override the stored report's own range for the changed-files diff", async () => {
+      const withFinding = report(
+        [{ ruleId: "unaddressed-error", severity: "medium", title: "x", seq: 1, sessionId: "sess-1", repoPath: "a.ts" }],
+        { range: { base: "stale-local-base", head: "stale-local-head" } },
+      );
+      const resolveRepoRoot = vi.fn().mockReturnValue("/repo");
+      const readReportNote = vi.fn().mockReturnValue(withFinding);
+      const changedFilesInRange = vi.fn().mockReturnValue(undefined);
+
+      const program = createProgram({
+        createStore: () => store,
+        resolveRepoRoot,
+        readReportNote,
+        changedFilesInRange,
+      });
+      await program.parseAsync([
+        "node",
+        "retrace",
+        "report",
+        "--read",
+        "abc123",
+        "--format",
+        "github",
+        "--fail-on",
+        "never",
+        "--base",
+        "pr-base-sha",
+        "--head",
+        "pr-head-sha",
+      ]);
+
+      expect(changedFilesInRange).toHaveBeenCalledWith("/repo", { base: "pr-base-sha", head: "pr-head-sha" });
+    });
+
+    it("with --read and no --base/--head, falls back to the stored report's own range", async () => {
+      const withFinding = report(
+        [{ ruleId: "unaddressed-error", severity: "medium", title: "x", seq: 1, sessionId: "sess-1", repoPath: "a.ts" }],
+        { range: { base: "main", head: "abc123" } },
+      );
+      const resolveRepoRoot = vi.fn().mockReturnValue("/repo");
+      const readReportNote = vi.fn().mockReturnValue(withFinding);
+      const changedFilesInRange = vi.fn().mockReturnValue(undefined);
+
+      const program = createProgram({
+        createStore: () => store,
+        resolveRepoRoot,
+        readReportNote,
+        changedFilesInRange,
+      });
+      await program.parseAsync(["node", "retrace", "report", "--read", "abc123", "--format", "github", "--fail-on", "never"]);
+
+      expect(changedFilesInRange).toHaveBeenCalledWith("/repo", { base: "main", head: "abc123" });
+    });
   });
 });

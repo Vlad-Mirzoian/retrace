@@ -1,0 +1,32 @@
+# Dogfooding: runs Retrace's own action against every PR to this repository,
+# via the local `./` path — not `Vlad-Mirzoian/retrace@v0`, since that tag
+# doesn't exist until a release is tagged (see RELEASING.md). This file is
+# also the canonical example: everything below `uses:` is exactly what
+# README.md's "Use it in CI" section shows, so copy-pasting that section into
+# another repo (with `uses: Vlad-Mirzoian/retrace@v0` instead) reproduces
+# this workflow.
+#
+# The very first runs of this workflow will hit the "no report published yet"
+# path — nobody has run `retrace report --publish` against this repo's
+# commits yet — and that is exactly the behavior module 07 needs verified in
+# the wild before this is considered done.
+name: Retrace check (example)
+
+on: pull_request
+
+permissions:
+  contents: read # nothing more is needed — no checks:write, no PAT
+
+jobs:
+  retrace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history — the action diffs base...head and fetches git notes
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22" # node:sqlite (used by retrace-cli) needs >=22.5
+
+      - uses: ./

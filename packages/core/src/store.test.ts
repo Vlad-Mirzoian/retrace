@@ -262,6 +262,106 @@ describe("RetraceStore.deleteSession", () => {
   it("is safe to call on a session with no on-disk events directory", () => {
     expect(() => store.deleteSession("never-existed")).not.toThrow();
   });
+
+  it("removes any commit links recorded for the session", () => {
+    store.appendEvent(prompt("s1", "one"));
+    store.linkCommit({
+      sessionId: "s1",
+      commitSha: "abc123",
+      repoRoot: "/repo",
+      confidence: "exact",
+      linkedAt: "2026-07-15T14:30:00.000Z",
+    });
+
+    store.deleteSession("s1");
+    expect(store.commitsForSession("s1")).toEqual([]);
+  });
+});
+
+describe("RetraceStore commit linkage", () => {
+  it("round-trips linkCommit through commitsForSession and sessionsForCommit", () => {
+    store.appendEvent(prompt("s1", "one"));
+    store.linkCommit({
+      sessionId: "s1",
+      commitSha: "abc123",
+      repoRoot: "/repo",
+      confidence: "exact",
+      linkedAt: "2026-07-15T14:30:00.000Z",
+    });
+
+    expect(store.commitsForSession("s1")).toEqual([
+      { sessionId: "s1", commitSha: "abc123", repoRoot: "/repo", confidence: "exact", linkedAt: "2026-07-15T14:30:00.000Z" },
+    ]);
+    expect(store.sessionsForCommit("abc123")).toEqual([
+      { sessionId: "s1", commitSha: "abc123", repoRoot: "/repo", confidence: "exact", linkedAt: "2026-07-15T14:30:00.000Z" },
+    ]);
+  });
+
+  it("upserts on a repeat link, updating repoRoot/linkedAt", () => {
+    store.appendEvent(prompt("s1", "one"));
+    store.linkCommit({
+      sessionId: "s1",
+      commitSha: "abc123",
+      repoRoot: "/repo",
+      confidence: "inferred",
+      linkedAt: "2026-07-15T14:30:00.000Z",
+    });
+    store.linkCommit({
+      sessionId: "s1",
+      commitSha: "abc123",
+      repoRoot: "/repo-renamed",
+      confidence: "inferred",
+      linkedAt: "2026-07-15T15:00:00.000Z",
+    });
+
+    const links = store.commitsForSession("s1");
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({ repoRoot: "/repo-renamed", linkedAt: "2026-07-15T15:00:00.000Z" });
+  });
+
+  it("never downgrades confidence from exact to inferred on a repeat link", () => {
+    store.appendEvent(prompt("s1", "one"));
+    store.linkCommit({
+      sessionId: "s1",
+      commitSha: "abc123",
+      repoRoot: "/repo",
+      confidence: "exact",
+      linkedAt: "2026-07-15T14:30:00.000Z",
+    });
+    store.linkCommit({
+      sessionId: "s1",
+      commitSha: "abc123",
+      repoRoot: "/repo",
+      confidence: "inferred",
+      linkedAt: "2026-07-15T15:00:00.000Z",
+    });
+
+    expect(store.commitsForSession("s1")[0].confidence).toBe("exact");
+  });
+
+  it("unlinkSession removes links without touching the session row", () => {
+    store.appendEvent(prompt("s1", "one"));
+    store.linkCommit({
+      sessionId: "s1",
+      commitSha: "abc123",
+      repoRoot: "/repo",
+      confidence: "exact",
+      linkedAt: "2026-07-15T14:30:00.000Z",
+    });
+
+    store.unlinkSession("s1");
+    expect(store.commitsForSession("s1")).toEqual([]);
+    expect(store.getSession("s1")).toBeDefined();
+  });
+
+  it("a commit can be linked to more than one session", () => {
+    store.appendEvent(prompt("s1", "one"));
+    store.appendEvent(prompt("s2", "two"));
+    store.linkCommit({ sessionId: "s1", commitSha: "shared", repoRoot: "/repo", confidence: "inferred", linkedAt: "2026-07-15T14:00:00.000Z" });
+    store.linkCommit({ sessionId: "s2", commitSha: "shared", repoRoot: "/repo", confidence: "inferred", linkedAt: "2026-07-15T14:05:00.000Z" });
+
+    expect(store.sessionsForCommit("shared").map((l) => l.sessionId)).toEqual(["s1", "s2"]);
+  });
 });
 
 describe("RetraceStore.reset", () => {

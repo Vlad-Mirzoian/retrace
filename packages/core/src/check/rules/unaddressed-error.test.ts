@@ -63,11 +63,22 @@ describe("unaddressed-error", () => {
     expect(findings).toEqual([]);
   });
 
-  it("fires with medium severity when only unrelated activity follows", () => {
+  it("fires with high severity when a failed test/build command has no follow-up action, even with trailing text", () => {
     const findings = run([
       { kind: "tool_call", payload: { toolName: "Bash", toolUseId: "t1", input: { command: "npm test" } } },
       { kind: "tool_result", payload: { toolUseId: "t1", output: "failed", isError: true } },
       { kind: "assistant_text", payload: { text: "The fix looks correct." } },
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].severity).toBe("high");
+  });
+
+  it("fires with medium severity for a non-test/build failure mid-session, when unrelated tool activity follows", () => {
+    const findings = run([
+      { kind: "tool_call", payload: { toolName: "Bash", toolUseId: "t1", input: { command: "rm stale-file.txt" } } },
+      { kind: "tool_result", payload: { toolUseId: "t1", output: "rm: cannot remove", isError: true } },
+      { kind: "tool_call", payload: { toolName: "Bash", toolUseId: "t2", input: { command: "ls" } } },
+      { kind: "tool_result", payload: { toolUseId: "t2", output: "some-file.txt" } },
     ]);
     expect(findings).toHaveLength(1);
     expect(findings[0].severity).toBe("medium");
