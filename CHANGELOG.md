@@ -5,6 +5,66 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-08-05
+
+### Fixed
+
+- `retrace import --projects-dir <path>` pointing at a directory that doesn't exist (or isn't a
+  directory) now fails immediately with a clear message and exit code `2`, instead of silently
+  reporting `Scanned 0 file(s), imported 0 event(s)...` — `findTranscripts`'s own "missing dir → []"
+  leniency (correct for the *default* `~/.claude/projects`, which legitimately may not exist yet on a
+  fresh install) was masking an explicit `--projects-dir` typo as if nothing were wrong.
+- `retrace export --output <path>` where `<path>` is an existing directory now writes the default
+  filename (`<sessionId>.json`/`.html`) inside it, matching what happens when `--output` is omitted
+  entirely — previously this crashed with a raw `EISDIR: illegal operation on a directory`.
+- `retrace reimport [--all]` no longer prints a redundant, differently-worded line per source file
+  (`<id>: imported N event(s) from M new line(s)`, from `importFile`'s own internal logging) alongside
+  its own `<id>: re-imported N event(s) from K file(s)` summary — the console logger is no longer
+  forwarded into the reimport's internal `importFile` calls, since the summary line already reports
+  everything that matters.
+- A tamper edit to `events.jsonl` that changes a line's byte length (not just swaps same-length
+  characters — the common real-world mistake, since `RetraceStore` indexes each event by a fixed byte
+  offset recorded at append time) previously crashed `retrace verify`/`retrace verify --all` with a raw
+  `SyntaxError`, and crashed the web viewer's `/api/sessions/:id/events`, `/verify`, and `/check` routes
+  with an opaque `500`, blanking the entire session page behind two confusing, unrelated-looking error
+  messages. `RetraceStore.readEvents` now stops cleanly at the first row it can't read (further offsets
+  are just as likely to be desynced, risking silently-wrong data rather than a clean failure) and
+  reports exactly which `seq` and why via a new `truncatedAt: { seq, reason }`, threaded through
+  `collectAllEvents`/`checkSession`/`exportSession`/`verifySession` and the three HTTP routes above.
+  `retrace verify`'s tampered output now names the real `seq` that failed, replacing a `-1` placeholder
+  used previously when the read itself (not a hash mismatch) was the problem. The viewer renders
+  whatever prefix of the session *is* readable — a working, if partial, timeline — with a
+  `Session truncated at seq N: …` banner, instead of a blank page; the same banner appears in
+  `retrace export --html`'s offline bundle. `retrace export`'s console output also notes the truncation
+  when it applies.
+- The Failures panel's highlight now derives directly from the shared replay cursor, so jumping to an
+  error via the replay controls' **Next error**/**Previous error** (or any other cursor move — a
+  timeline row, the scrubber) highlights the matching failure — previously only a click inside the
+  panel itself set the highlight, so a control-driven jump landed on the right event without showing
+  which failure it was.
+- Manually scrolling the timeline (wheel/touch) now clears the Failures/Findings panels' selected-item
+  highlight, instead of leaving it pinned to whatever was last clicked even after scrolling away to look
+  at something else; the next seek re-establishes it (`useClearSelectionOnScroll`).
+- The replay controls' **First step** button (and any jump back to `seq` 0) now scrolls the whole page
+  to the top, instead of centering the first timeline row mid-viewport and leaving the page header
+  scrolled out of view above it.
+- CI: `release.yml`'s publish steps are now idempotent — each checks the registry for the current
+  version before `npm publish`, so re-running the job after a partial failure (e.g. `retrace-core`
+  published, `retrace-cli` didn't — GitHub Actions can't resume a job from its failed step) skips the
+  already-published package instead of failing outright on npm's immutable-version rule.
+- CI: raised `retrace-cli`'s test timeout to 30s (from vitest's 5000ms default, in a new
+  `packages/cli/vitest.config.ts`) — tests that shell out to real `git` subprocesses (`git.test.ts`,
+  `commands/report.test.ts`) were intermittently missing the default under CI's shared, contended load
+  (the root `pnpm test` runs all three packages' suites concurrently), failing the release workflow on
+  runner contention rather than a real hang.
+
+### Added
+
+- A search box on the session list, filtering by project, branch, title, or path — narrows the visible
+  list to whatever matches, case-insensitively.
+- A footer on every viewer page and in the offline HTML export, linking to the project's GitHub and the
+  CI setup guide.
+
 ## [0.4.0] — 2026-07-29
 
 ### Added

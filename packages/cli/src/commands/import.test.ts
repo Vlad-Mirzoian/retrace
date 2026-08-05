@@ -1,9 +1,17 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile, appendFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { RetraceStore } from "retrace-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { findTranscripts, importFile, importOnce, watchImport } from "./import.js";
+
+// defaultProjectsDir() resolves homedir()/.claude/projects — mock node:os's
+// homedir so the "default dir missing" test points at a throwaway directory
+// instead of this machine's real ~/.claude/projects (which does exist here).
+vi.mock("node:os", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:os")>();
+  return { ...actual, homedir: vi.fn(actual.homedir) };
+});
 
 let home: string;
 let projectsDir: string;
@@ -111,7 +119,7 @@ describe("importFile", () => {
     expect(session?.ccVersion).toBe("2.1.181");
     expect(session?.eventCount).toBe(2);
 
-    const events = store.readEvents("sess-x", 0, 10);
+    const events = store.readEvents("sess-x", 0, 10).events;
     expect(events.map((e) => e.kind)).toEqual(["user_prompt", "assistant_text"]);
   });
 
@@ -130,7 +138,7 @@ describe("importFile", () => {
     const first = importFile(store, path);
     expect(first.imported).toBe(1);
 
-    const beforeGrowth = store.readEvents("sess-x", 0, 10);
+    const beforeGrowth = store.readEvents("sess-x", 0, 10).events;
     const firstEventHash = beforeGrowth[0].hash;
 
     await appendFile(path, `${ASSISTANT_LINE}\n${FOLLOWUP_LINE}\n`, "utf8");
@@ -138,7 +146,7 @@ describe("importFile", () => {
     expect(second.skipped).toBe(false);
     expect(second.imported).toBe(2);
 
-    const all = store.readEvents("sess-x", 0, 10);
+    const all = store.readEvents("sess-x", 0, 10).events;
     expect(all).toHaveLength(3);
     expect(all.map((e) => e.kind)).toEqual([
       "user_prompt",
@@ -156,7 +164,7 @@ describe("importFile", () => {
     const path = await writeTranscript("proj-a", "sess-x", [USER_LINE, EDIT_WRITE_LINE]);
     importFile(store, path);
 
-    const events = store.readEvents("sess-x", 0, 10);
+    const events = store.readEvents("sess-x", 0, 10).events;
     expect(events.map((e) => e.kind)).toEqual([
       "user_prompt",
       "tool_call",
@@ -215,6 +223,27 @@ describe("importOnce", () => {
     const second = importOnce(store, { projectsDir });
     expect(second.filesChanged).toBe(0);
     expect(second.eventsImported).toBe(0);
+  });
+
+  it("throws a clear error when an explicit --projects-dir doesn't exist, instead of silently scanning 0 files", () => {
+    const missing = join(projectsDir, "does-not-exist");
+    expect(() => importOnce(store, { projectsDir: missing })).toThrow(missing);
+  });
+
+  it("throws when an explicit --projects-dir points at a file, not a directory", async () => {
+    const filePath = join(projectsDir, "not-a-dir.txt");
+    await writeFile(filePath, "hi", "utf8");
+    expect(() => importOnce(store, { projectsDir: filePath })).toThrow(filePath);
+  });
+
+  it("does not throw when the default projects directory (no --projects-dir override) is missing — a fresh install has no ~/.claude/projects yet", () => {
+    vi.mocked(homedir).mockReturnValue(join(projectsDir, "no-home-here"));
+    try {
+      expect(() => importOnce(store, {})).not.toThrow();
+      expect(importOnce(store, {}).filesScanned).toBe(0);
+    } finally {
+      vi.mocked(homedir).mockRestore();
+    }
   });
 });
 

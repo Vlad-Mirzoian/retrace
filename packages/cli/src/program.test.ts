@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -117,6 +117,29 @@ describe("createProgram — import", () => {
 
     const [, options] = importOnce.mock.calls[0];
     expect(options.projectsDir).toBeUndefined();
+  });
+
+  it("fails clearly with exit code 2 when --projects-dir doesn't exist, instead of silently reporting 0 scanned", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // No injected `importOnce` here — this exercises the real, lazily-loaded
+    // commands/import.js implementation, since the missing-directory check
+    // lives there, not in program.ts's wiring.
+    const program = createProgram({ createStore: () => store });
+    await program.parseAsync([
+      "node",
+      "retrace",
+      "import",
+      "--projects-dir",
+      join(home, "does-not-exist"),
+    ]);
+
+    expect(errorSpy.mock.calls.join("\n")).toMatch(/--projects-dir not found/i);
+    expect(output()).not.toMatch(/scanned/i);
+    expect(process.exitCode).toBe(2);
+
+    errorSpy.mockRestore();
+    process.exitCode = 0;
   });
 });
 
@@ -281,6 +304,22 @@ describe("createProgram — export", () => {
     const [, , options] = exportSession.mock.calls[0];
     expect(options.viewerExportDir).toBe("/embedded/viewer-export");
   });
+
+  it("reports a thrown error cleanly with exit code 2, instead of an uncaught stack trace", async () => {
+    const exportSession = vi.fn().mockImplementation(() => {
+      throw new Error("no session matches \"sess-1\"");
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const program = createProgram({ createStore: () => store, exportSession });
+    await program.parseAsync(["node", "retrace", "export", "sess-1"]);
+
+    expect(errorSpy).toHaveBeenCalledWith('no session matches "sess-1"');
+    expect(process.exitCode).toBe(2);
+
+    errorSpy.mockRestore();
+    process.exitCode = 0;
+  });
 });
 
 describe("createProgram — reimport", () => {
@@ -300,6 +339,38 @@ describe("createProgram — reimport", () => {
     expect(passedStore).toBe(store);
     expect(idOrPrefix).toBe("sess-1");
     expect(output()).toMatch(/sess-1: re-imported 12 event\(s\) from 1 file\(s\)/i);
+  });
+
+  it("prints exactly one summary line per session, not also importFile's own per-file log line", async () => {
+    // Exercises the real (uninjected) reimportSession — the double-line
+    // bug only shows up when the CLI's console logger actually gets
+    // forwarded into importFile, which a mocked reimportSession bypasses.
+    const projectsDir = await mkdtemp(join(tmpdir(), "retrace-program-reimport-projects-"));
+    try {
+      const dir = join(projectsDir, "proj-a");
+      await mkdir(dir, { recursive: true });
+      const path = join(dir, "sess-x.jsonl");
+      await writeFile(
+        path,
+        `${JSON.stringify({
+          sessionId: "sess-x",
+          type: "user",
+          message: { role: "user", content: "hi" },
+          timestamp: "2026-07-15T10:00:00.000Z",
+        })}\n`,
+        "utf8",
+      );
+      const importOnce = (await import("./commands/import.js")).importOnce;
+      importOnce(store, { projectsDir });
+
+      const program = createProgram({ createStore: () => store });
+      await program.parseAsync(["node", "retrace", "reimport", "sess-x"]);
+
+      const lines = output().split("\n").filter(Boolean);
+      expect(lines).toEqual(["sess-x: re-imported 1 event(s) from 1 file(s)"]);
+    } finally {
+      await rm(projectsDir, { recursive: true, force: true });
+    }
   });
 
   it("reports a hook-only session as deleted with nothing to re-import", async () => {
@@ -389,6 +460,23 @@ describe("createProgram — verify", () => {
     await program.parseAsync(["node", "retrace", "verify", "sess-1"]);
 
     expect(output()).toMatch(/✗ sess-1: tampered at seq 2 — event hash does not match contents/);
+    expect(process.exitCode).toBe(1);
+    process.exitCode = 0;
+  });
+
+  it("reports an unreadable events.jsonl without a nonsensical 'at seq -1'", async () => {
+    const result: VerifyResult = {
+      sessionId: "sess-1",
+      eventCount: 0,
+      verification: { ok: false, index: -1, reason: "events.jsonl could not be read: boom" },
+    };
+    const verifySession = vi.fn().mockReturnValue(result);
+
+    const program = createProgram({ createStore: () => store, verifySession });
+    await program.parseAsync(["node", "retrace", "verify", "sess-1"]);
+
+    expect(output()).toMatch(/^✗ sess-1: tampered — events\.jsonl could not be read: boom$/m);
+    expect(output()).not.toMatch(/at seq/);
     expect(process.exitCode).toBe(1);
     process.exitCode = 0;
   });

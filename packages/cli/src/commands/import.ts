@@ -122,6 +122,14 @@ export function importFile(
 /** Scan the projects directory once and import every changed transcript. */
 export function importOnce(store: RetraceStore, options: ImportOptions = {}): ImportSummary {
   const dir = options.projectsDir ?? defaultProjectsDir();
+  // The default `~/.claude/projects` legitimately doesn't exist yet on a
+  // fresh install (0 scanned is the right answer, not an error) — but an
+  // explicit --projects-dir that doesn't resolve is almost always a typo, and
+  // `findTranscripts`'s own "missing dir -> []" leniency would otherwise
+  // silently report "Scanned 0 file(s)" with no hint that the path was wrong.
+  if (options.projectsDir !== undefined && !(existsSync(dir) && statSync(dir).isDirectory())) {
+    throw new Error(`--projects-dir not found or not a directory: ${dir}`);
+  }
   const files = findTranscripts(dir);
   const results = files.map((file) => importFile(store, file, options.log));
 

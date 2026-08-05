@@ -53,7 +53,7 @@ describe("reimportSession", () => {
       kind: "thinking",
       payload: { text: "" },
     });
-    expect(store.readEvents("sess-x").map((e) => e.kind)).toEqual([
+    expect(store.readEvents("sess-x").events.map((e) => e.kind)).toEqual([
       "assistant_text",
       "thinking",
     ]);
@@ -62,7 +62,7 @@ describe("reimportSession", () => {
     expect(result.sessionId).toBe("sess-x");
     expect(result.importPaths).toEqual([path]);
     expect(result.eventsImported).toBe(1);
-    expect(store.readEvents("sess-x").map((e) => e.kind)).toEqual(["assistant_text"]);
+    expect(store.readEvents("sess-x").events.map((e) => e.kind)).toEqual(["assistant_text"]);
   });
 
   it("resolves a unique id prefix", async () => {
@@ -138,7 +138,7 @@ describe("reimportSession", () => {
     expect(() => reimportSession(store, "sess-x")).toThrow(/no longer on disk/);
     // The session's stored data must survive a refused reimport untouched.
     expect(store.getSession("sess-x")?.eventCount).toBe(1);
-    expect(store.readEvents("sess-x")).toHaveLength(1);
+    expect(store.readEvents("sess-x").events).toHaveLength(1);
   });
 });
 
@@ -195,6 +195,6 @@ describe("reimportAll", () => {
     ]);
     // The session whose source vanished must still have its stored data intact.
     expect(store.getSession("sess-gone")?.eventCount).toBe(1);
-    expect(store.readEvents("sess-gone")).toHaveLength(1);
+    expect(store.readEvents("sess-gone").events).toHaveLength(1);
   });
 });

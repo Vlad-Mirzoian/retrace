@@ -19,7 +19,7 @@ function findingKey(finding: CheckFinding): string {
  * finding anchors to a tool call) below the list.
  */
 export function FindingsPanel({ report, events }: { report: CheckReport; events: RetraceEvent[] }) {
-  const { currentSeq, setCurrentSeq, setPlaying } = useReplay();
+  const { currentSeq, setCurrentSeq, setPlaying, selectionSuppressed } = useReplay();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   function jump(finding: CheckFinding) {
@@ -31,10 +31,19 @@ export function FindingsPanel({ report, events }: { report: CheckReport; events:
     setSelectedKey(findingKey(finding));
   }
 
-  const selected =
-    report.findings.find(
-      (finding) => findingKey(finding) === selectedKey && finding.seq === currentSeq,
-    ) ?? null;
+  // Gated on the *explicit* click that set selectedKey, not just a bare seq
+  // match — unlike FailurePanel, a finding can share its seq with an
+  // unrelated failure (module 05's flagged-session fixture is exactly this:
+  // a failing Bash call trips `unaddressed-error` at the same seq as the
+  // tool_result itself), so deriving selection from currentSeq alone would
+  // highlight this finding just because someone jumped to that co-located
+  // failure. `selectionSuppressed` (a genuine user scroll since the last
+  // seek) still forces this back to unselected — see useClearSelectionOnScroll.
+  const selected = selectionSuppressed
+    ? null
+    : (report.findings.find(
+        (finding) => findingKey(finding) === selectedKey && finding.seq === currentSeq,
+      ) ?? null);
 
   return (
     <div className="findings-panel">

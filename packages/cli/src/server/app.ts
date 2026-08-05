@@ -2,9 +2,15 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { runChecks, verifyChain, type RetraceStore } from "retrace-core";
+import { runChecks, type RetraceStore } from "retrace-core";
 import { Hono } from "hono";
+import { verifySession } from "../commands/verify.js";
 import { collectAllEvents } from "../events.js";
+
+/** A readable message for a route whose data read genuinely failed (e.g. a corrupted events.jsonl), instead of an opaque 500 with no body. */
+function readFailureMessage(err: unknown): string {
+  return `events.jsonl could not be read: ${err instanceof Error ? err.message : String(err)}`;
+}
 
 function parsePositiveInt(value: string | undefined, fallback: number): number | null {
   if (value === undefined) return fallback;
@@ -49,7 +55,16 @@ export function createApp(store: RetraceStore, options: CreateAppOptions = {}): 
       return c.json({ error: "offset and limit must be non-negative integers" }, 400);
     }
 
-    return c.json(store.readEvents(id, offset, limit));
+    try {
+      // `readEvents` already reports a corrupted row as `truncatedAt` rather
+      // than throwing — the client gets a normal 200 with whatever prefix
+      // was recoverable, plus enough to explain why the session stops there.
+      return c.json(store.readEvents(id, offset, limit));
+    } catch (err) {
+      // Only a harder failure reaches here — e.g. events.jsonl is missing
+      // entirely, not just desynced.
+      return c.json({ error: readFailureMessage(err) }, 500);
+    }
   });
 
   app.get("/api/objects/:hash", async (c) => {
@@ -67,7 +82,10 @@ export function createApp(store: RetraceStore, options: CreateAppOptions = {}): 
   app.get("/api/sessions/:id/verify", (c) => {
     const id = c.req.param("id");
     if (!store.getSession(id)) return c.json({ error: "session not found" }, 404);
-    return c.json(verifyChain(collectAllEvents(store, id)));
+    // verifySession (the same function `retrace verify` uses) already treats
+    // an unreadable events.jsonl as tamper evidence in its own right, rather
+    // than letting the read failure escape as an uncaught exception here.
+    return c.json(verifySession(store, id).verification);
   });
 
   app.get("/api/sessions/:id/check", (c) => {
@@ -82,7 +100,12 @@ export function createApp(store: RetraceStore, options: CreateAppOptions = {}): 
           .filter(Boolean)
       : undefined;
 
-    return c.json(runChecks(id, collectAllEvents(store, id), disabled ? { disabled } : undefined));
+    try {
+      const { events, truncatedAt } = collectAllEvents(store, id);
+      return c.json({ ...runChecks(id, events, disabled ? { disabled } : undefined), truncatedAt });
+    } catch (err) {
+      return c.json({ error: readFailureMessage(err) }, 500);
+    }
   });
 
   if (options.viewerDir && existsSync(options.viewerDir)) {

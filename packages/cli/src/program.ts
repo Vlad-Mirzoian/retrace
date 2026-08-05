@@ -248,7 +248,11 @@ function formatVerifyResult(result: VerifyResult): string {
   if (result.verification.ok) {
     return `✓ ${result.sessionId}: verified (${result.eventCount} event(s))`;
   }
-  return `✗ ${result.sessionId}: tampered at seq ${result.verification.index} — ${result.verification.reason}`;
+  // index -1 means the chain was never even reconstructed — events.jsonl
+  // itself failed to read (see verifySession's catch) — so "at seq -1"
+  // would be a meaningless number, not a real event position.
+  const at = result.verification.index >= 0 ? ` at seq ${result.verification.index}` : "";
+  return `✗ ${result.sessionId}: tampered${at} — ${result.verification.reason}`;
 }
 
 function formatLinkResult(result: LinkSessionResult): string {
@@ -357,20 +361,26 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       };
 
       if (opts.watch) {
-        const { watchImport, defaultProjectsDir } = await lazy.import();
-        console.log(
-          `Watching ${importOptions.projectsDir ?? defaultProjectsDir()} for changes... (Ctrl+C to stop)`,
-        );
-        const handle = (deps.watchImport ?? watchImport)(store, importOptions);
-        const stop = () => {
-          handle.stop();
+        try {
+          const { watchImport, defaultProjectsDir } = await lazy.import();
+          console.log(
+            `Watching ${importOptions.projectsDir ?? defaultProjectsDir()} for changes... (Ctrl+C to stop)`,
+          );
+          const handle = (deps.watchImport ?? watchImport)(store, importOptions);
+          const stop = () => {
+            handle.stop();
+            store.close();
+          };
+          process.once("SIGINT", stop);
+          process.once("SIGTERM", stop);
+          // Intentionally does not await/return a pending promise: the watcher's
+          // own fs.watch/timer handle keeps the event loop (and process) alive
+          // until `stop` runs, exactly like a real long-running watch command.
+        } catch (err) {
+          console.error(err instanceof Error ? err.message : String(err));
+          process.exitCode = 2;
           store.close();
-        };
-        process.once("SIGINT", stop);
-        process.once("SIGTERM", stop);
-        // Intentionally does not await/return a pending promise: the watcher's
-        // own fs.watch/timer handle keeps the event loop (and process) alive
-        // until `stop` runs, exactly like a real long-running watch command.
+        }
         return;
       }
 
@@ -380,6 +390,9 @@ export function createProgram(deps: ProgramDeps = {}): Command {
         console.log(
           `Scanned ${summary.filesScanned} file(s), imported ${summary.eventsImported} event(s) from ${summary.filesChanged} changed file(s).`,
         );
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 2;
       } finally {
         store.close();
       }
@@ -467,6 +480,15 @@ export function createProgram(deps: ProgramDeps = {}): Command {
           viewerExportDir: deps.viewerExportDir,
         });
         console.log(`Exported ${result.eventCount} event(s) to ${result.path}`);
+        if (result.truncatedAt) {
+          console.log(
+            `Note: events.jsonl could not be read past seq ${result.truncatedAt.seq} — ` +
+              `${result.truncatedAt.reason}. Only the events before that point were exported.`,
+          );
+        }
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exitCode = 2;
       } finally {
         store.close();
       }
@@ -484,10 +506,14 @@ export function createProgram(deps: ProgramDeps = {}): Command {
       const reimportSession = deps.reimportSession ?? mod.reimportSession;
       const reimportAll = deps.reimportAll ?? mod.reimportAll;
       const store = createStore();
-      const log = (message: string) => console.log(message);
       try {
         if (opts.all) {
-          const { results, skipped, failed } = reimportAll(store, log);
+          // No logger passed through here: reimportSession forwards it
+          // straight to importFile's own per-file "imported N event(s) from
+          // M new line(s)" line, which would print redundantly alongside
+          // (and out of step with) the "re-imported" summary line below —
+          // this loop already reports everything that matters per session.
+          const { results, skipped, failed } = reimportAll(store);
           for (const r of results) {
             console.log(
               `${r.sessionId}: re-imported ${r.eventsImported} event(s) from ${r.importPaths.length} file(s)`,
@@ -511,7 +537,7 @@ export function createProgram(deps: ProgramDeps = {}): Command {
           return;
         }
 
-        const result = reimportSession(store, sessionId, log);
+        const result = reimportSession(store, sessionId);
         if (result.importPaths.length === 0) {
           console.log(`${result.sessionId}: deleted (no known source transcript to re-import from)`);
         } else {

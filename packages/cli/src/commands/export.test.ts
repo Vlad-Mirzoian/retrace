@@ -42,6 +42,17 @@ describe("exportSession — json", () => {
     expect(() => exportSession(store, "nope", { format: "json" })).toThrow(/no session matches/);
   });
 
+  it("writes the default filename inside --output when it's an existing directory, instead of a raw EISDIR", async () => {
+    seedSession();
+    const expectedPath = join(outDir, "sess-1.json");
+
+    const result = exportSession(store, "sess-1", { format: "json", output: outDir });
+    expect(result).toEqual({ path: expectedPath, format: "json", eventCount: 2 });
+
+    const written = JSON.parse(await readFile(expectedPath, "utf8"));
+    expect(written.session.id).toBe("sess-1");
+  });
+
   it("resolves a unique session id prefix", async () => {
     seedSession();
     const output = join(outDir, "out.json");
@@ -130,6 +141,17 @@ describe("exportSession — html", () => {
     expect(() =>
       exportSession(store, "sess-1", { format: "html", viewerExportDir: join(outDir, "nope") }),
     ).toThrow(/export template not found/);
+  });
+
+  it("writes the default filename inside --output when it's an existing directory", async () => {
+    seedSession();
+    const expectedPath = join(outDir, "sess-1.html");
+
+    const result = exportSession(store, "sess-1", { format: "html", viewerExportDir, output: outDir });
+    expect(result).toEqual({ path: expectedPath, format: "html", eventCount: 2 });
+
+    const html = await readFile(expectedPath, "utf8");
+    expect(html).toContain("window.__RETRACE_EXPORT__");
   });
 
   it("embeds the session data into the template as a single self-contained file", async () => {

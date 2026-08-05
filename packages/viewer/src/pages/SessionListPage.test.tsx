@@ -1,5 +1,6 @@
 import type { SessionRow } from "retrace-core/browser";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import * as client from "../api/client.js";
@@ -71,5 +72,92 @@ describe("SessionListPage", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText(/failed to load sessions: network down/i)).toBeInTheDocument();
+  });
+
+  describe("search", () => {
+    const sessions = [
+      session({ id: "sess-a", cwd: "/home/dev/my-project", title: "Fix the login bug", gitBranch: "main" }),
+      session({
+        id: "sess-b",
+        project: "-home-dev-other-app",
+        cwd: "/home/dev/other-app",
+        title: "Add dark mode",
+        gitBranch: "feature/dark-mode",
+      }),
+    ];
+
+    it("narrows the list to sessions matching the search text", async () => {
+      vi.mocked(client.listSessions).mockResolvedValue(sessions);
+      render(
+        <MemoryRouter>
+          <SessionListPage />
+        </MemoryRouter>,
+      );
+      await screen.findByText("my-project");
+      expect(screen.getByText("other-app")).toBeInTheDocument();
+
+      await userEvent.type(screen.getByRole("searchbox", { name: /search sessions/i }), "dark mode");
+
+      expect(screen.queryByText("my-project")).not.toBeInTheDocument();
+      expect(screen.getByText("other-app")).toBeInTheDocument();
+    });
+
+    it("matches on branch name, not just the project label", async () => {
+      vi.mocked(client.listSessions).mockResolvedValue(sessions);
+      render(
+        <MemoryRouter>
+          <SessionListPage />
+        </MemoryRouter>,
+      );
+      await screen.findByText("my-project");
+
+      await userEvent.type(screen.getByRole("searchbox", { name: /search sessions/i }), "feature/dark-mode");
+
+      expect(screen.queryByText("my-project")).not.toBeInTheDocument();
+      expect(screen.getByText("other-app")).toBeInTheDocument();
+    });
+
+    it("is case-insensitive", async () => {
+      vi.mocked(client.listSessions).mockResolvedValue(sessions);
+      render(
+        <MemoryRouter>
+          <SessionListPage />
+        </MemoryRouter>,
+      );
+      await screen.findByText("my-project");
+
+      await userEvent.type(screen.getByRole("searchbox", { name: /search sessions/i }), "LOGIN");
+
+      expect(screen.getByText("my-project")).toBeInTheDocument();
+      expect(screen.queryByText("other-app")).not.toBeInTheDocument();
+    });
+
+    it("shows a friendly message when nothing matches", async () => {
+      vi.mocked(client.listSessions).mockResolvedValue(sessions);
+      render(
+        <MemoryRouter>
+          <SessionListPage />
+        </MemoryRouter>,
+      );
+      await screen.findByText("my-project");
+
+      await userEvent.type(screen.getByRole("searchbox", { name: /search sessions/i }), "nonexistent");
+
+      expect(screen.getByText(/no sessions match "nonexistent"/i)).toBeInTheDocument();
+    });
+
+    it("shows a matched/total count", async () => {
+      vi.mocked(client.listSessions).mockResolvedValue(sessions);
+      render(
+        <MemoryRouter>
+          <SessionListPage />
+        </MemoryRouter>,
+      );
+      await screen.findByText("my-project");
+      expect(screen.getByText("2 / 2")).toBeInTheDocument();
+
+      await userEvent.type(screen.getByRole("searchbox", { name: /search sessions/i }), "dark mode");
+      expect(screen.getByText("1 / 2")).toBeInTheDocument();
+    });
   });
 });

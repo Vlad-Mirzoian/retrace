@@ -69,7 +69,7 @@ beforeEach(() => {
 describe("SessionDetailPage", () => {
   it("renders the session header and its timeline", async () => {
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getAllEvents).mockResolvedValue(events);
+    vi.mocked(client.getAllEvents).mockResolvedValue({ events });
 
     renderAtSession("sess-1");
 
@@ -83,7 +83,7 @@ describe("SessionDetailPage", () => {
 
   it("loads the whole session, not just the first page", async () => {
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getAllEvents).mockResolvedValue([]);
+    vi.mocked(client.getAllEvents).mockResolvedValue({ events: [] });
 
     renderAtSession("sess-1");
 
@@ -94,7 +94,7 @@ describe("SessionDetailPage", () => {
 
   it("shows a friendly message when there are no events", async () => {
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getAllEvents).mockResolvedValue([]);
+    vi.mocked(client.getAllEvents).mockResolvedValue({ events: [] });
 
     renderAtSession("sess-1");
     expect(await screen.findByText(/no events recorded/i)).toBeInTheDocument();
@@ -102,7 +102,7 @@ describe("SessionDetailPage", () => {
 
   it("shows an error when the session fails to load", async () => {
     vi.mocked(client.getSession).mockRejectedValue(new Error("boom"));
-    vi.mocked(client.getAllEvents).mockResolvedValue([]);
+    vi.mocked(client.getAllEvents).mockResolvedValue({ events: [] });
 
     renderAtSession("sess-1");
     expect(await screen.findByText(/failed to load session: boom/i)).toBeInTheDocument();
@@ -116,9 +116,25 @@ describe("SessionDetailPage", () => {
     expect(await screen.findByText(/failed to load events: events exploded/i)).toBeInTheDocument();
   });
 
+  it("still renders the recoverable timeline and shows a truncation banner, instead of blanking the whole page", async () => {
+    vi.mocked(client.getSession).mockResolvedValue(session);
+    vi.mocked(client.getAllEvents).mockResolvedValue({
+      events: [events[0]], // only the first event survived the corruption
+      truncatedAt: { seq: 1, reason: "Unexpected non-whitespace character after JSON" },
+    });
+
+    renderAtSession("sess-1");
+
+    expect(await screen.findByText("please fix the login bug")).toBeInTheDocument();
+    expect(
+      screen.getByText(/session truncated at seq 1.*could not be read further/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/failed to load events/i)).not.toBeInTheDocument();
+  });
+
   it("filters the timeline by text search", async () => {
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getAllEvents).mockResolvedValue(events);
+    vi.mocked(client.getAllEvents).mockResolvedValue({ events });
 
     renderAtSession("sess-1");
     await screen.findByText("please fix the login bug");
@@ -133,7 +149,7 @@ describe("SessionDetailPage", () => {
 
   it("filters the timeline by kind chip", async () => {
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getAllEvents).mockResolvedValue(events);
+    vi.mocked(client.getAllEvents).mockResolvedValue({ events });
 
     renderAtSession("sess-1");
     await screen.findByText("please fix the login bug");
@@ -146,7 +162,7 @@ describe("SessionDetailPage", () => {
 
   it("shows the findings panel's empty state (naming the rule count) for a session with no findings", async () => {
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getAllEvents).mockResolvedValue(events);
+    vi.mocked(client.getAllEvents).mockResolvedValue({ events });
 
     renderAtSession("sess-1");
     await screen.findByText("please fix the login bug");
@@ -168,7 +184,7 @@ describe("SessionDetailPage", () => {
       },
     ];
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getAllEvents).mockResolvedValue(eventsWithBlindEdit);
+    vi.mocked(client.getAllEvents).mockResolvedValue({ events: eventsWithBlindEdit });
 
     renderAtSession("sess-1");
     await screen.findByText("please fix the login bug");
@@ -209,7 +225,7 @@ describe("SessionDetailPage", () => {
       },
     ];
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getAllEvents).mockResolvedValue(withFindingAndFailure);
+    vi.mocked(client.getAllEvents).mockResolvedValue({ events: withFindingAndFailure });
 
     renderAtSession("sess-1");
     await screen.findByText("please fix the login bug");
@@ -237,7 +253,7 @@ describe("SessionDetailPage", () => {
 
   it("pauses autoplay when a timeline row is clicked", async () => {
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getAllEvents).mockResolvedValue(events);
+    vi.mocked(client.getAllEvents).mockResolvedValue({ events });
 
     renderAtSession("sess-1");
     await screen.findByText("please fix the login bug");
@@ -251,7 +267,7 @@ describe("SessionDetailPage", () => {
 
   it("pauses autoplay on a manual scroll (wheel)", async () => {
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getAllEvents).mockResolvedValue(events);
+    vi.mocked(client.getAllEvents).mockResolvedValue({ events });
 
     renderAtSession("sess-1");
     await screen.findByText("please fix the login bug");
@@ -286,7 +302,7 @@ describe("SessionDetailPage", () => {
       },
     ];
     vi.mocked(client.getSession).mockResolvedValue(session);
-    vi.mocked(client.getAllEvents).mockResolvedValue(withFailure);
+    vi.mocked(client.getAllEvents).mockResolvedValue({ events: withFailure });
 
     renderAtSession("sess-1");
     await screen.findByText("please fix the login bug");

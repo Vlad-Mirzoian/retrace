@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { FailurePanel } from "./FailurePanel.js";
 import { ReplayProvider, useReplay } from "./ReplayContext.js";
+import { useClearSelectionOnScroll } from "./useClearSelectionOnScroll.js";
 
 function base(seq: number) {
   return { seq, ts: "2026-07-15T14:37:00.000Z", sessionId: "s", prevHash: null, hash: `h${seq}` };
@@ -52,10 +53,17 @@ function PlaybackToggle() {
   );
 }
 
+/** Mounts the same scroll-detection wired into the real page (SessionTimelinePanel), so a fireEvent.wheel here behaves like it would in the app. */
+function ScrollWatcher() {
+  useClearSelectionOnScroll();
+  return null;
+}
+
 function renderPanel(fixture: RetraceEvent[] = events, extra?: ReactNode) {
   render(
     <ReplayProvider maxSeq={3}>
       <CurrentSeq />
+      <ScrollWatcher />
       {extra}
       <FailurePanel events={fixture} />
     </ReplayProvider>,
@@ -134,5 +142,43 @@ describe("FailurePanel", () => {
     fireEvent.click(screen.getByText("jump elsewhere"));
     expect(button).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByText(/no originating tool call recorded/i)).not.toBeInTheDocument();
+  });
+
+  it("highlights the matching failure when the cursor lands on its seq from elsewhere — e.g. a replay control's Next error step", () => {
+    renderPanel(events, <JumpElsewhere seq={1} />);
+
+    const button = screen.getByText("seq 1").closest("button")!;
+    expect(button).toHaveAttribute("aria-pressed", "false");
+
+    // Not a click on this panel's own list — simulates ReplayControls'
+    // "Next error" button seeking straight to a failure's seq.
+    fireEvent.click(screen.getByText("jump elsewhere"));
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/why did this happen/i)).toBeInTheDocument();
+  });
+
+  it("clears the selection on a genuine user scroll, even though the cursor hasn't moved", () => {
+    renderPanel();
+
+    const button = screen.getByText("top-level failure").closest("button")!;
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.wheel(window);
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByText(/no originating tool call recorded/i)).not.toBeInTheDocument();
+    // The cursor itself is untouched — only the panel's highlight cleared.
+    expect(screen.getByTestId("seq")).toHaveTextContent("3");
+  });
+
+  it("re-selects on the next seek after a scroll suppressed the highlight", () => {
+    renderPanel();
+
+    fireEvent.click(screen.getByText("top-level failure").closest("button")!);
+    fireEvent.wheel(window);
+
+    const other = screen.getByText("seq 1").closest("button")!;
+    fireEvent.click(other);
+    expect(other).toHaveAttribute("aria-pressed", "true");
   });
 });

@@ -111,6 +111,13 @@ tbody tr:hover {
   text-overflow: ellipsis;
 }
 
+.session-list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+}
+
 code,
 pre {
   font-family: var(--font-mono);
@@ -123,6 +130,21 @@ pre {
 .app-header {
   padding: var(--sp-3) var(--sp-5);
   border-bottom: 1px solid var(--border);
+}
+
+.app-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-5);
+  margin-top: var(--sp-5);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.app-footer-sep {
+  color: var(--border);
 }
 
 .page {

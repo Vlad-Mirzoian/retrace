@@ -15,19 +15,11 @@ export function SessionDetailPage() {
   const { id = "" } = useParams();
   const session = useAsync(() => getSession(id), [id]);
   const events = useAsync(() => getAllEvents(id), [id]);
+  const eventList = events.status === "ready" ? events.data.events : null;
 
-  const navIndex = useMemo(
-    () => (events.status === "ready" ? buildNavIndex(events.data) : null),
-    [events],
-  );
-  const report = useMemo(
-    () => (events.status === "ready" ? runChecks(id, events.data) : null),
-    [id, events],
-  );
-  const maxSeq =
-    events.status === "ready" && events.data.length > 0
-      ? events.data[events.data.length - 1].seq
-      : 0;
+  const navIndex = useMemo(() => (eventList ? buildNavIndex(eventList) : null), [eventList]);
+  const report = useMemo(() => (eventList ? runChecks(id, eventList) : null), [id, eventList]);
+  const maxSeq = eventList && eventList.length > 0 ? eventList[eventList.length - 1].seq : 0;
 
   return (
     <div className="page">
@@ -45,12 +37,19 @@ export function SessionDetailPage() {
       {events.status === "error" && (
         <p className="error">Failed to load events: {events.error.message}</p>
       )}
-      {events.status === "ready" && navIndex && (
+      {events.status === "ready" && events.data.truncatedAt && (
+        <p className="error">
+          Session truncated at seq {events.data.truncatedAt.seq}: events.jsonl could not be read
+          further ({events.data.truncatedAt.reason}). Showing the {eventList?.length ?? 0} event(s)
+          recovered before that point.
+        </p>
+      )}
+      {eventList && navIndex && (
         <ReplayProvider maxSeq={maxSeq}>
           <ReplayControls navIndex={navIndex} />
           <div className="session-columns">
             <div className="session-column-main">
-              <SessionTimelinePanel events={events.data} />
+              <SessionTimelinePanel events={eventList} />
             </div>
             <div className="session-column-side">
               <section className="panel">
@@ -61,7 +60,7 @@ export function SessionDetailPage() {
                   )}
                 </header>
                 <div className="panel-body">
-                  {report && <FindingsPanel report={report} events={events.data} />}
+                  {report && <FindingsPanel report={report} events={eventList} />}
                 </div>
               </section>
               <section className="panel">
@@ -69,7 +68,7 @@ export function SessionDetailPage() {
                   <h2 className="panel-title">Failures</h2>
                 </header>
                 <div className="panel-body">
-                  <FailurePanel events={events.data} />
+                  <FailurePanel events={eventList} />
                 </div>
               </section>
               <section className="panel">
@@ -77,7 +76,7 @@ export function SessionDetailPage() {
                   <h2 className="panel-title">Working tree</h2>
                 </header>
                 <div className="panel-body">
-                  <WorkingTreePanel events={events.data} />
+                  <WorkingTreePanel events={eventList} />
                 </div>
               </section>
             </div>

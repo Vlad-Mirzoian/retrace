@@ -1,18 +1,17 @@
 import { buildNavIndex, summarize, type RetraceEvent } from "retrace-core/browser";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { CausalTrace } from "./CausalTrace.js";
 import { useReplay } from "./ReplayContext.js";
 
 /**
  * Lists every recorded failure (error events + failed tool results) with a
- * one-click jump, plus a causal trace for whichever failure was last jumped
- * to. Leans entirely on Module 1's buildNavIndex/causalChainFor — no new
- * failure-detection logic here.
+ * one-click jump, plus a causal trace for whichever failure the replay
+ * cursor currently sits on. Leans entirely on Module 1's
+ * buildNavIndex/causalChainFor — no new failure-detection logic here.
  */
 export function FailurePanel({ events }: { events: RetraceEvent[] }) {
-  const { currentSeq, setCurrentSeq, setPlaying } = useReplay();
+  const { currentSeq, setCurrentSeq, setPlaying, selectionSuppressed } = useReplay();
   const navIndex = useMemo(() => buildNavIndex(events), [events]);
-  const [selectedSeq, setSelectedSeq] = useState<number | null>(null);
 
   const failures = useMemo(
     () => navIndex.errors.map((seq) => events.find((event) => event.seq === seq)).filter(
@@ -31,14 +30,17 @@ export function FailurePanel({ events }: { events: RetraceEvent[] }) {
     // selected.
     setPlaying(false);
     setCurrentSeq(seq);
-    setSelectedSeq(seq);
   }
 
-  // Gated on the shared replay cursor, not just our own last click — see
-  // FindingsPanel's matching comment. Selecting a Finding (or anything else
-  // that moves the cursor) clears this panel's own highlight/detail instead
-  // of leaving it stuck showing whatever failure was clicked here last.
-  const selected = selectedSeq !== null && selectedSeq === currentSeq ? selectedSeq : null;
+  // Derived straight from the shared replay cursor, not a separate "last
+  // clicked here" state — so this panel highlights the matching failure
+  // regardless of *how* the cursor got there: a click in this list, a
+  // Next/Previous error step in the replay controls, or a timeline row.
+  // `selectionSuppressed` (set by a genuine user scroll, cleared by the next
+  // seek) forces it back to unselected even though the cursor itself hasn't
+  // moved — see useClearSelectionOnScroll.
+  const selected =
+    !selectionSuppressed && failures.some((f) => f.seq === currentSeq) ? currentSeq : null;
 
   return (
     <div className="failure-panel">

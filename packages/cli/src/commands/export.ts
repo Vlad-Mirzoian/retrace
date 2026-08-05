@@ -1,8 +1,9 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   verifyChain,
   type ChainVerification,
+  type EventsTruncation,
   type RetraceEvent,
   type RetraceStore,
   type SessionRow,
@@ -27,6 +28,8 @@ export interface ExportedSession {
    * the live viewer does, with no server to ask.
    */
   verification: ChainVerification;
+  /** Set when events.jsonl couldn't be read past some point — `events` only covers up to there. */
+  truncatedAt?: EventsTruncation;
 }
 
 export type ExportFormat = "json" | "html";
@@ -43,6 +46,8 @@ export interface ExportResult {
   path: string;
   format: ExportFormat;
   eventCount: number;
+  /** Set when events.jsonl couldn't be read past some point — the export only covers events up to there. */
+  truncatedAt?: EventsTruncation;
 }
 
 /**
@@ -69,12 +74,13 @@ function collectObjects(store: RetraceStore, events: RetraceEvent[]): Record<str
 
 function buildExportedSession(store: RetraceStore, sessionId: string): ExportedSession {
   const session = store.getSession(sessionId)!; // caller has already resolved this to a real id
-  const events = collectAllEvents(store, sessionId);
+  const { events, truncatedAt } = collectAllEvents(store, sessionId);
   return {
     session,
     events,
     objects: collectObjects(store, events),
     verification: verifyChain(events),
+    truncatedAt,
   };
 }
 
@@ -119,11 +125,20 @@ export function exportSession(
 ): ExportResult {
   const sessionId = store.resolveSessionId(idOrPrefix);
   const data = buildExportedSession(store, sessionId);
-  const path = options.output ?? defaultOutputPath(sessionId, options.format);
+  let path = options.output ?? defaultOutputPath(sessionId, options.format);
+
+  // An existing directory is a reasonable thing to pass to --output — the
+  // caller shouldn't have to know or invent the default filename just to
+  // say "put it here". Drop the default name inside it, the same as when
+  // --output is omitted entirely. `writeFileSync` on a bare directory path
+  // would otherwise throw a raw, unhelpful EISDIR.
+  if (existsSync(path) && statSync(path).isDirectory()) {
+    path = join(path, defaultOutputPath(sessionId, options.format));
+  }
 
   if (options.format === "json") {
     writeFileSync(path, JSON.stringify(data, null, 2), "utf8");
-    return { path, format: "json", eventCount: data.events.length };
+    return { path, format: "json", eventCount: data.events.length, truncatedAt: data.truncatedAt };
   }
 
   if (!options.viewerExportDir) {
@@ -137,5 +152,5 @@ export function exportSession(
   }
   const template = readFileSync(templatePath, "utf8");
   writeFileSync(path, injectData(template, data), "utf8");
-  return { path, format: "html", eventCount: data.events.length };
+  return { path, format: "html", eventCount: data.events.length, truncatedAt: data.truncatedAt };
 }

@@ -1,6 +1,6 @@
 {
   "name": "retrace-core",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Core event schema, hash-chained store, transcript parser, and check engine for Retrace — verifies whether a Claude Code session did what it claimed.",
   "type": "module",
   "license": "MIT",

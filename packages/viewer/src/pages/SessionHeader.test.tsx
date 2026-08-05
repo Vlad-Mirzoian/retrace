@@ -39,6 +39,18 @@ describe("SessionHeader", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a broken-integrity badge without a nonsensical 'at step -1' when events.jsonl itself couldn't be read", async () => {
+    vi.mocked(client.getVerification).mockResolvedValue({
+      ok: false,
+      index: -1,
+      reason: "events.jsonl could not be read: boom",
+    });
+    render(<SessionHeader session={session} />);
+    const badge = await screen.findByText(/integrity broken — events\.jsonl could not be read: boom/i);
+    expect(badge).toBeInTheDocument();
+    expect(badge.textContent).not.toMatch(/at step/i);
+  });
+
   it("degrades quietly when the verification check itself fails", async () => {
     vi.mocked(client.getVerification).mockRejectedValue(new Error("network down"));
     render(<SessionHeader session={session} />);

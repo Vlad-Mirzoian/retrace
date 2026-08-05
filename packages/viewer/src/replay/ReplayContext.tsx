@@ -11,6 +11,16 @@ export interface ReplayContextValue {
   /** Playback speed multiplier (1 = one row per base tick). */
   speed: number;
   setSpeed: (speed: number) => void;
+  /**
+   * True once the user has manually scrolled since the last seek. Failures/
+   * Findings side panels use this to drop their "selected" highlight instead
+   * of leaving it pinned to a spot the user has since scrolled away from —
+   * see `useClearSelectionOnScroll`. A fresh `setCurrentSeq` call (from
+   * anywhere: replay controls, a panel click, a timeline row) clears it back
+   * to false on its own, since that's a new, deliberate look at that seq.
+   */
+  selectionSuppressed: boolean;
+  suppressSelection: () => void;
 }
 
 const ReplayContext = createContext<ReplayContextValue | null>(null);
@@ -35,15 +45,31 @@ export function ReplayProvider({
   const [currentSeq, setCurrentSeqState] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [selectionSuppressed, setSelectionSuppressed] = useState(false);
 
   const setCurrentSeq = useCallback(
-    (seq: number) => setCurrentSeqState(clamp(seq, maxSeq)),
+    (seq: number) => {
+      setCurrentSeqState(clamp(seq, maxSeq));
+      setSelectionSuppressed(false);
+    },
     [maxSeq],
   );
 
+  const suppressSelection = useCallback(() => setSelectionSuppressed(true), []);
+
   const value = useMemo<ReplayContextValue>(
-    () => ({ currentSeq, setCurrentSeq, maxSeq, playing, setPlaying, speed, setSpeed }),
-    [currentSeq, setCurrentSeq, maxSeq, playing, speed],
+    () => ({
+      currentSeq,
+      setCurrentSeq,
+      maxSeq,
+      playing,
+      setPlaying,
+      speed,
+      setSpeed,
+      selectionSuppressed,
+      suppressSelection,
+    }),
+    [currentSeq, setCurrentSeq, maxSeq, playing, speed, selectionSuppressed, suppressSelection],
   );
 
   return <ReplayContext.Provider value={value}>{children}</ReplayContext.Provider>;

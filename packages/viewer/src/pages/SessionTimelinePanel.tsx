@@ -1,6 +1,7 @@
 import type { RetraceEvent } from "retrace-core/browser";
 import { useEffect, useMemo, useState } from "react";
 import { useReplay } from "../replay/ReplayContext.js";
+import { useClearSelectionOnScroll } from "../replay/useClearSelectionOnScroll.js";
 import { usePauseOnScroll } from "../replay/usePauseOnScroll.js";
 import { usePlayback } from "../replay/usePlayback.js";
 import {
@@ -45,6 +46,7 @@ export function SessionTimelinePanel({ events }: { events: RetraceEvent[] }) {
   const { currentSeq, setCurrentSeq, setPlaying } = useReplay();
   usePlayback(filteredItems);
   usePauseOnScroll();
+  useClearSelectionOnScroll();
 
   // Clicking a specific row is a manual navigation, same as a replay-control
   // seek or a Findings/Failures click — it should stop auto-play rather than

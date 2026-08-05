@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { FindingsPanel } from "./FindingsPanel.js";
 import { ReplayProvider, useReplay } from "../replay/ReplayContext.js";
+import { useClearSelectionOnScroll } from "../replay/useClearSelectionOnScroll.js";
 
 function base(seq: number) {
   return { seq, ts: "2026-07-15T14:37:00.000Z", sessionId: "s", prevHash: null, hash: `h${seq}` };
@@ -61,10 +62,17 @@ function PlaybackToggle() {
   );
 }
 
+/** Mounts the same scroll-detection wired into the real page (SessionTimelinePanel), so a fireEvent.wheel here behaves like it would in the app. */
+function ScrollWatcher() {
+  useClearSelectionOnScroll();
+  return null;
+}
+
 function renderPanel(r: CheckReport, fixtureEvents: RetraceEvent[] = events, extra?: ReactNode) {
   return render(
     <ReplayProvider maxSeq={10}>
       <CurrentSeq />
+      <ScrollWatcher />
       {extra}
       <FindingsPanel report={r} events={fixtureEvents} />
     </ReplayProvider>,
@@ -225,6 +233,39 @@ describe("FindingsPanel", () => {
     fireEvent.click(screen.getByText("jump elsewhere"));
     expect(button).toHaveAttribute("aria-pressed", "false");
     expect(document.querySelector(".finding-detail")).not.toBeInTheDocument();
+  });
+
+  it("clears the selection on a genuine user scroll, even though the cursor hasn't moved", () => {
+    renderPanel(
+      report({
+        findings: [{ ruleId: "unaddressed-error", severity: "high", title: "Bash failed", seq: 1 }],
+      }),
+    );
+
+    const button = screen.getByText("Bash failed").closest("button")!;
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.wheel(window);
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    expect(document.querySelector(".finding-detail")).not.toBeInTheDocument();
+    // The cursor itself is untouched — only the panel's highlight cleared.
+    expect(screen.getByTestId("seq")).toHaveTextContent("1");
+  });
+
+  it("re-selects on the next seek after a scroll suppressed the highlight", () => {
+    renderPanel(
+      report({
+        findings: [{ ruleId: "unaddressed-error", severity: "high", title: "Bash failed", seq: 1 }],
+      }),
+    );
+
+    fireEvent.click(screen.getByText("Bash failed").closest("button")!);
+    fireEvent.wheel(window);
+
+    const button = screen.getByText("Bash failed").closest("button")!;
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-pressed", "true");
   });
 
   it("pauses autoplay when a finding is clicked", () => {

@@ -1,11 +1,11 @@
 import type { RetraceEvent, SessionRow } from "retrace-core/browser";
-// `ChainVerification` isn't re-exported from `retrace-core/browser`: chain.ts
-// (where it's defined) imports node:crypto as a *value* import for
-// verifyChain, so browser.ts deliberately excludes it. An `import type` is
-// erased entirely at build time, so pulling just the type from the main
-// entry never reaches the bundle — safe even though the value-level module
-// isn't browser-safe.
-import type { ChainVerification } from "retrace-core";
+// Neither `ChainVerification` nor `EventsTruncation` is re-exported from
+// `retrace-core/browser`: they're defined in chain.ts/store.ts, both of
+// which import Node-only modules (node:crypto, node:sqlite) as *values* —
+// browser.ts deliberately excludes them. An `import type` is erased entirely
+// at build time, so pulling just the type from the main entry never reaches
+// the bundle — safe even though the value-level module isn't browser-safe.
+import type { ChainVerification, EventsTruncation } from "retrace-core";
 
 export class ApiError extends Error {
   constructor(
@@ -39,7 +39,13 @@ export interface GetEventsOptions {
   limit?: number;
 }
 
-export function getEvents(id: string, options: GetEventsOptions = {}): Promise<RetraceEvent[]> {
+export interface EventsPage {
+  events: RetraceEvent[];
+  /** Set when the store couldn't read past this point (e.g. a tamper edit that desynced events.jsonl) — see `RetraceStore.readEvents`. */
+  truncatedAt?: EventsTruncation;
+}
+
+export function getEvents(id: string, options: GetEventsOptions = {}): Promise<EventsPage> {
   const params = new URLSearchParams();
   if (options.offset !== undefined) params.set("offset", String(options.offset));
   if (options.limit !== undefined) params.set("limit", String(options.limit));
@@ -48,15 +54,17 @@ export function getEvents(id: string, options: GetEventsOptions = {}): Promise<R
 }
 
 /**
- * Page through the events API until the whole session is loaded — a session
- * runs to hundreds of events and the timeline shows all of them.
+ * Page through the events API until the whole session is loaded (or a page
+ * reports it couldn't read further) — a session runs to hundreds of events
+ * and the timeline shows all of them.
  */
-export async function getAllEvents(id: string, pageSize = 500): Promise<RetraceEvent[]> {
+export async function getAllEvents(id: string, pageSize = 500): Promise<EventsPage> {
   const all: RetraceEvent[] = [];
   for (;;) {
     const page = await getEvents(id, { offset: all.length, limit: pageSize });
-    all.push(...page);
-    if (page.length < pageSize) return all;
+    all.push(...page.events);
+    if (page.truncatedAt) return { events: all, truncatedAt: page.truncatedAt };
+    if (page.events.length < pageSize) return { events: all };
   }
 }
 

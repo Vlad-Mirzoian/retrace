@@ -47,6 +47,23 @@ export interface DeletedSessionInfo {
   importPaths: string[];
 }
 
+/**
+ * Marks the point where {@link RetraceStore.readEvents} gave up reading
+ * further events for a session. `seq` is the first event this page couldn't
+ * recover; `reason` is the underlying read/parse failure.
+ */
+export interface EventsTruncation {
+  seq: number;
+  reason: string;
+}
+
+export interface EventsPage {
+  /** Every event this page could recover, in order — a strict prefix when `truncatedAt` is set. */
+  events: RetraceEvent[];
+  /** Set when a row in this page failed to read or parse as a valid event. */
+  truncatedAt?: EventsTruncation;
+}
+
 /** node:sqlite rejects `undefined` bindings; normalize to `null`. */
 function bind(value: string | number | null | undefined): string | number | null {
   return value === undefined ? null : value;
@@ -144,7 +161,7 @@ export class RetraceStore {
       `SELECT last_seq, last_hash FROM sessions WHERE id = ?`,
     );
     this.selectEventPage = this.db.prepare(
-      `SELECT jsonl_offset, byte_length FROM events
+      `SELECT seq, jsonl_offset, byte_length FROM events
        WHERE session_id = ? ORDER BY seq LIMIT ? OFFSET ?`,
     );
     this.upsertImportState = this.db.prepare(
@@ -360,24 +377,35 @@ export class RetraceStore {
     return row ? toSessionRow(row) : undefined;
   }
 
-  /** Read a page of sealed events for a session, ordered by seq. */
-  readEvents(sessionId: string, offset = 0, limit = 100): RetraceEvent[] {
-    const rows = asRow<{ jsonl_offset: number; byte_length: number }[]>(
+  /**
+   * Read a page of sealed events for a session, ordered by seq.
+   */
+  readEvents(sessionId: string, offset = 0, limit = 100): EventsPage {
+    const rows = asRow<{ seq: number; jsonl_offset: number; byte_length: number }[]>(
       this.selectEventPage.all(sessionId, limit, offset),
     );
-    if (rows.length === 0) return [];
+    if (rows.length === 0) return { events: [] };
 
     const filePath = this.eventsPath(sessionId);
     const fd = openSync(filePath, "r");
     try {
-      return rows.map((row) => {
-        const buffer = Buffer.alloc(row.byte_length);
-        readSync(fd, buffer, 0, row.byte_length, row.jsonl_offset);
-        const stored = JSON.parse(buffer.toString("utf8")) as Record<string, unknown>;
-        // parse() also drops the stored `v` stamp, which is metadata about the
-        // record rather than part of the hashed event.
-        return RetraceEvent.parse(inflateEvent(stored, this.cas));
-      });
+      const events: RetraceEvent[] = [];
+      for (const row of rows) {
+        try {
+          const buffer = Buffer.alloc(row.byte_length);
+          readSync(fd, buffer, 0, row.byte_length, row.jsonl_offset);
+          const stored = JSON.parse(buffer.toString("utf8")) as Record<string, unknown>;
+          // parse() also drops the stored `v` stamp, which is metadata about
+          // the record rather than part of the hashed event.
+          events.push(RetraceEvent.parse(inflateEvent(stored, this.cas)));
+        } catch (err) {
+          return {
+            events,
+            truncatedAt: { seq: row.seq, reason: err instanceof Error ? err.message : String(err) },
+          };
+        }
+      }
+      return { events };
     } finally {
       closeSync(fd);
     }

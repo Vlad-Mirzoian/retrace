@@ -1,4 +1,5 @@
 import { Link, Route, Routes } from "react-router-dom";
+import { Footer } from "./Footer.js";
 import { ComparePage } from "./pages/ComparePage.js";
 import { SessionDetailPage } from "./pages/SessionDetailPage.js";
 import { SessionListPage } from "./pages/SessionListPage.js";
@@ -16,6 +17,7 @@ export function App() {
         <Route path="/sessions/:id" element={<SessionDetailPage />} />
         <Route path="/compare" element={<ComparePage />} />
       </Routes>
+      <Footer />
     </>
   );
 }

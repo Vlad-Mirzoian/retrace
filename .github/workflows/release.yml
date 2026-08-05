@@ -44,7 +44,19 @@ jobs:
           pnpm --filter retrace-cli pack --pack-destination /tmp/release-tarballs
 
       - name: Publish retrace-core
-        run: npm publish /tmp/release-tarballs/retrace-core-*.tgz --access public --provenance
+        run: |
+          version=$(node -p "require('./packages/core/package.json').version")
+          if npm view "retrace-core@$version" version >/dev/null 2>&1; then
+            echo "retrace-core@$version is already on the registry — skipping (safe re-run)."
+          else
+            npm publish /tmp/release-tarballs/retrace-core-*.tgz --access public --provenance
+          fi
 
       - name: Publish retrace-cli
-        run: npm publish /tmp/release-tarballs/retrace-cli-*.tgz --access public --provenance
+        run: |
+          version=$(node -p "require('./packages/cli/package.json').version")
+          if npm view "retrace-cli@$version" version >/dev/null 2>&1; then
+            echo "retrace-cli@$version is already on the registry — skipping (safe re-run)."
+          else
+            npm publish /tmp/release-tarballs/retrace-cli-*.tgz --access public --provenance
+          fi

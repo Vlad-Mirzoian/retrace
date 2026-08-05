@@ -106,7 +106,7 @@ describe("handleHook — PreToolUse file snapshots", () => {
       NOW,
     );
 
-    const events = store.readEvents("sess-1", 0, 10);
+    const events = store.readEvents("sess-1", 0, 10).events;
     expect(events).toHaveLength(1);
     expect(events[0].kind).toBe("file_change");
   });

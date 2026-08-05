@@ -63,20 +63,20 @@ describe("payload offloading", () => {
     expect(written.artifactRefs).toHaveLength(1);
     expect(written.artifactRefs?.[0]).toMatch(/^[0-9a-f]{64}$/);
 
-    const [read] = store.readEvents("s1", 0, 1);
+    const [read] = store.readEvents("s1", 0, 1).events;
     expect(read.artifactRefs).toEqual(written.artifactRefs);
   });
 
   it("round-trips the payload transparently on read", () => {
     store.appendEvent(toolResult(BIG));
-    const [read] = store.readEvents("s1", 0, 1);
+    const [read] = store.readEvents("s1", 0, 1).events;
     expect(read.kind).toBe("tool_result");
     if (read.kind === "tool_result") expect(read.payload.output).toBe(BIG);
   });
 
   it("offloads oversized strings nested inside arrays and objects", () => {
     store.appendEvent(toolResult([{ type: "text", text: BIG }]));
-    const [read] = store.readEvents("s1", 0, 1);
+    const [read] = store.readEvents("s1", 0, 1).events;
     if (read.kind === "tool_result") {
       expect(read.payload.output).toEqual([{ type: "text", text: BIG }]);
     }
@@ -89,7 +89,7 @@ describe("payload offloading", () => {
       kind: "thinking",
       payload: { text: BIG },
     });
-    const [read] = store.readEvents("s1", 0, 1);
+    const [read] = store.readEvents("s1", 0, 1).events;
     if (read.kind === "thinking") expect(read.payload.text).toBe(BIG);
   });
 
@@ -97,7 +97,7 @@ describe("payload offloading", () => {
     store.appendEvent(toolResult(BIG));
     store.appendEvent(toolResult(BIG));
 
-    const [a, b] = store.readEvents("s1", 0, 2);
+    const [a, b] = store.readEvents("s1", 0, 2).events;
     expect(a.artifactRefs?.[0]).toBe(b.artifactRefs?.[0]);
 
     const { readdir } = await import("node:fs/promises");
@@ -112,14 +112,14 @@ describe("payload offloading", () => {
     store.appendEvent(toolResult(SMALL));
     store.appendEvent(toolResult(BIG.replace("x", "y")));
 
-    const events = store.readEvents("s1", 0, 10);
+    const events = store.readEvents("s1", 0, 10).events;
     expect(events).toHaveLength(3);
     expect(verifyChain(events)).toEqual({ ok: true });
   });
 
   it("still detects tampering when the body lives in the CAS", async () => {
     store.appendEvent(toolResult(BIG));
-    const [before] = store.readEvents("s1", 0, 1);
+    const [before] = store.readEvents("s1", 0, 1).events;
     const hash = before.artifactRefs![0];
 
     // Rewrite the CAS object's bytes in place, as an attacker editing the
@@ -132,7 +132,7 @@ describe("payload offloading", () => {
     await writeFile(join(home, "objects", hash.slice(0, 2), hash), gzipSync(forged));
     expect(cas.getTextSync(hash)).toBe(forged); // the tamper landed
 
-    const [after] = store.readEvents("s1", 0, 1);
+    const [after] = store.readEvents("s1", 0, 1).events;
     const result = verifyChain([after]);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toMatch(/tampered/);
@@ -146,7 +146,7 @@ describe("payload offloading", () => {
 
   it("does not leak the version stamp into the parsed event", () => {
     store.appendEvent(toolResult(SMALL));
-    const [read] = store.readEvents("s1", 0, 1);
+    const [read] = store.readEvents("s1", 0, 1).events;
     expect("v" in read).toBe(false);
   });
 });

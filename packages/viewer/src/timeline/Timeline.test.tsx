@@ -199,6 +199,23 @@ describe("Timeline", () => {
       );
     });
 
+    it("scrolls the whole page to the top when the cursor returns to the very first row, instead of centering it", () => {
+      const first = prompt("first");
+      const second = prompt("second");
+      const items = groupEvents([first, second]);
+      const scrollToSpy = vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+
+      const { rerender } = render(<Timeline items={items} currentSeq={second.seq} />);
+      scrollToIndex.mockClear();
+
+      // "First step" (or stepping back to seq 0) — not just any row.
+      rerender(<Timeline items={items} currentSeq={first.seq} />);
+      expect(scrollToSpy).toHaveBeenCalledWith({ top: 0, behavior: "auto" });
+      expect(scrollToIndex).not.toHaveBeenCalled();
+
+      scrollToSpy.mockRestore();
+    });
+
     it("does not scroll when the visible item list changes but the cursor doesn't — e.g. toggling a filter", () => {
       const first = prompt("first");
       const second = prompt("second");

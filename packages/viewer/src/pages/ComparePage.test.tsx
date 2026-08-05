@@ -68,7 +68,9 @@ describe("ComparePage", () => {
         payload: { text: `hello from ${id}` },
       } as RetraceEvent,
     ];
-    vi.mocked(client.getAllEvents).mockImplementation((id: string) => Promise.resolve(eventsFor(id)));
+    vi.mocked(client.getAllEvents).mockImplementation((id: string) =>
+      Promise.resolve({ events: eventsFor(id) }),
+    );
 
     renderAt("?a=sess-1&b=sess-2");
 

@@ -17,8 +17,33 @@ export interface VerifyResult {
  */
 export function verifySession(store: RetraceStore, idOrPrefix: string): VerifyResult {
   const sessionId = store.resolveSessionId(idOrPrefix);
-  const events = collectAllEvents(store, sessionId);
-  return { sessionId, eventCount: events.length, verification: verifyChain(events) };
+  try {
+    const { events, truncatedAt } = collectAllEvents(store, sessionId);
+    const chainVerification = verifyChain(events);
+    
+    if (!chainVerification.ok || !truncatedAt) {
+      return { sessionId, eventCount: events.length, verification: chainVerification };
+    }
+    return {
+      sessionId,
+      eventCount: events.length,
+      verification: {
+        ok: false,
+        index: truncatedAt.seq,
+        reason: `events.jsonl could not be read from seq ${truncatedAt.seq} onward: ${truncatedAt.reason}`,
+      },
+    };
+  } catch (err) {
+    // A harder failure than a corrupted row — e.g. events.jsonl is missing
+    // entirely, not just desynced (collectAllEvents no longer throws for a
+    // corrupted row; see above) — with no specific seq to point at.
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      sessionId,
+      eventCount: 0,
+      verification: { ok: false, index: -1, reason: `events.jsonl could not be read: ${reason}` },
+    };
+  }
 }
 
 export interface VerifyAllSummary {

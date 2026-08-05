@@ -61,9 +61,9 @@ function CompareView({ idA, idB }: { idA: string; idB: string }) {
 
       {eventsA.status === "ready" && eventsB.status === "ready" && (
         <>
-          <CompareTimeline eventsA={eventsA.data} eventsB={eventsB.data} />
+          <CompareTimeline eventsA={eventsA.data.events} eventsB={eventsB.data.events} />
           <h2 className="side-heading">Final state diff</h2>
-          <FinalStateDiff eventsA={eventsA.data} eventsB={eventsB.data} />
+          <FinalStateDiff eventsA={eventsA.data.events} eventsB={eventsB.data.events} />
         </>
       )}
     </div>

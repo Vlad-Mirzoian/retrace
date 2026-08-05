@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RetraceStore } from "retrace-core";
@@ -17,6 +17,21 @@ afterEach(async () => {
   store.close();
   await rm(home, { recursive: true, force: true });
 });
+
+/**
+ * Shortens an event's on-disk line by dropping one occurrence of `find`,
+ * desyncing the byte_length SQLite recorded for it from the file's actual
+ * bytes — the read itself then fails (see verifySession's matching test)
+ * rather than the hash simply not matching. Simulates the real-world case: a
+ * "just edit a character" tamper attempt that also happens to change byte
+ * length.
+ */
+async function corruptEventBytes(sessionId: string, find: string) {
+  const path = join(home, "sessions", sessionId, "events.jsonl");
+  const content = await readFile(path, "utf8");
+  expect(content).toContain(find);
+  await writeFile(path, content.replace(find, ""), "utf8");
+}
 
 describe("GET /api/sessions", () => {
   it("returns an empty array when there are no sessions", async () => {
@@ -85,16 +100,17 @@ describe("GET /api/sessions/:id/events", () => {
     const app = createApp(store);
     const res = await app.request("/api/sessions/sess-1/events");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { seq: number }[];
-    expect(body.map((e) => e.seq)).toEqual([0, 1, 2]);
+    const body = (await res.json()) as { events: { seq: number }[]; truncatedAt?: unknown };
+    expect(body.events.map((e) => e.seq)).toEqual([0, 1, 2]);
+    expect(body.truncatedAt).toBeUndefined();
   });
 
   it("respects offset and limit", async () => {
     seed();
     const app = createApp(store);
     const res = await app.request("/api/sessions/sess-1/events?offset=1&limit=1");
-    const body = (await res.json()) as { seq: number }[];
-    expect(body.map((e) => e.seq)).toEqual([1]);
+    const body = (await res.json()) as { events: { seq: number }[] };
+    expect(body.events.map((e) => e.seq)).toEqual([1]);
   });
 
   it("400s on a non-numeric offset/limit", async () => {
@@ -109,6 +125,23 @@ describe("GET /api/sessions/:id/events", () => {
     const app = createApp(store);
     const res = await app.request("/api/sessions/sess-1/events?limit=0");
     expect(res.status).toBe(400);
+  });
+
+  it("returns the recoverable prefix plus truncatedAt — 200, not a crashed 500 — when a later event can't be read", async () => {
+    seed();
+    // "two" is the second event (seq 1); shortening it desyncs every event
+    // recorded after it, but "one" (seq 0) is untouched and still readable.
+    await corruptEventBytes("sess-1", "two");
+    const app = createApp(store);
+    const res = await app.request("/api/sessions/sess-1/events");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      events: { seq: number }[];
+      truncatedAt?: { seq: number; reason: string };
+    };
+    expect(body.events.map((e) => e.seq)).toEqual([0]);
+    expect(body.truncatedAt?.seq).toBe(1);
+    expect(body.truncatedAt?.reason).toBeTruthy();
   });
 });
 
@@ -147,6 +180,23 @@ describe("GET /api/sessions/:id/verify", () => {
     const res = await app.request("/api/sessions/sess-1/verify");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it("reports a clean 'tampered' verdict — 200, not a crashed 500 — when events.jsonl can't be read", async () => {
+    store.appendEvent({
+      ts: "2026-07-15T14:37:00.000Z",
+      sessionId: "sess-1",
+      kind: "user_prompt",
+      payload: { text: "hi" },
+    });
+    await corruptEventBytes("sess-1", "hi");
+    const app = createApp(store);
+    const res = await app.request("/api/sessions/sess-1/verify");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; index?: number; reason?: string };
+    expect(body.ok).toBe(false);
+    expect(body.index).toBe(0);
+    expect(body.reason).toMatch(/events\.jsonl could not be read/);
   });
 });
 
@@ -199,6 +249,35 @@ describe("GET /api/sessions/:id/check", () => {
     const body = (await res.json()) as { rulesRun: string[]; findings: unknown[] };
     expect(body.rulesRun).not.toContain("edit-without-read");
     expect(body.findings).toEqual([]);
+  });
+
+  it("runs the check engine over the recoverable prefix and reports truncatedAt — 200, not a crashed 500", async () => {
+    store.appendEvent({
+      ts: "2026-07-15T14:37:00.000Z",
+      sessionId: "sess-1",
+      kind: "file_change",
+      payload: { path: "/repo/a.ts", operation: "edit", oldString: "x", newString: "y" },
+    });
+    store.appendEvent({
+      ts: "2026-07-15T14:37:01.000Z",
+      sessionId: "sess-1",
+      kind: "user_prompt",
+      payload: { text: "second one" },
+    });
+    await corruptEventBytes("sess-1", "second one");
+
+    const app = createApp(store);
+    const res = await app.request("/api/sessions/sess-1/check");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      findings: { ruleId: string }[];
+      truncatedAt?: { seq: number; reason: string };
+    };
+    // The first (untouched) event's own finding still comes through — the
+    // truncation doesn't blank the whole report, just what's after it.
+    expect(body.findings.map((f) => f.ruleId)).toContain("edit-without-read");
+    expect(body.truncatedAt?.seq).toBe(1);
+    expect(body.truncatedAt?.reason).toBeTruthy();
   });
 });
 

@@ -1,9 +1,10 @@
-import type { ChainVerification } from "retrace-core";
+import type { ChainVerification, EventsTruncation } from "retrace-core";
 import { buildNavIndex, runChecks, type RetraceEvent, type SessionRow } from "retrace-core/browser";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { registerEmbeddedObjects, registerEmbeddedVerification } from "./api/client.js";
 import { FindingsPanel } from "./check/FindingsPanel.js";
+import { Footer } from "./Footer.js";
 import { SessionHeader } from "./pages/SessionHeader.js";
 import { SessionTimelinePanel } from "./pages/SessionTimelinePanel.js";
 import { FailurePanel } from "./replay/FailurePanel.js";
@@ -18,6 +19,8 @@ interface ExportedData {
   events: RetraceEvent[];
   objects?: Record<string, string>;
   verification?: ChainVerification;
+  /** Set when events.jsonl couldn't be read past some point at export time — `events` only covers up to there. */
+  truncatedAt?: EventsTruncation;
 }
 
 declare global {
@@ -34,6 +37,13 @@ function ExportedSession({ data }: { data: ExportedData }) {
   return (
     <div className="page">
       <SessionHeader session={data.session} />
+      {data.truncatedAt && (
+        <p className="error">
+          Session truncated at seq {data.truncatedAt.seq}: events.jsonl could not be read further (
+          {data.truncatedAt.reason}). Showing the {data.events.length} event(s) recovered before
+          that point.
+        </p>
+      )}
       <ReplayProvider maxSeq={maxSeq}>
         <ReplayControls navIndex={navIndex} />
         <div className="session-columns">
@@ -74,5 +84,6 @@ createRoot(root).render(
     ) : (
       <p className="page error">No session data was embedded in this export.</p>
     )}
+    <Footer />
   </StrictMode>,
 );

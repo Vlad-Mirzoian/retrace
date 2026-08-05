@@ -1,10 +1,12 @@
-import type { CheckOptions, CheckReport, RetraceStore, Severity } from "retrace-core";
+import type { CheckOptions, CheckReport, EventsTruncation, RetraceStore, Severity } from "retrace-core";
 import { runChecks } from "retrace-core";
 import { collectAllEvents } from "../events.js";
 
 export interface CheckSessionResult {
   sessionId: string;
   report: CheckReport;
+  /** Set when events.jsonl couldn't be read past some point — the report only covers events up to there. */
+  truncatedAt?: EventsTruncation;
 }
 
 /**
@@ -19,8 +21,8 @@ export function checkSession(
   options?: CheckOptions,
 ): CheckSessionResult {
   const sessionId = store.resolveSessionId(idOrPrefix);
-  const events = collectAllEvents(store, sessionId);
-  return { sessionId, report: runChecks(sessionId, events, options) };
+  const { events, truncatedAt } = collectAllEvents(store, sessionId);
+  return { sessionId, report: runChecks(sessionId, events, options), truncatedAt };
 }
 
 export interface CheckAllSummary {

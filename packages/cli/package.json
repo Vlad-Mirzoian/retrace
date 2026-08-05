@@ -1,6 +1,6 @@
 {
   "name": "retrace-cli",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Retrace — checks whether Claude Code did what it said it did, and records everything it did to prove it. CLI, timeline viewer, and check engine.",
   "type": "module",
   "license": "MIT",

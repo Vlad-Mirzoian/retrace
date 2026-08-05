@@ -8,9 +8,13 @@ function VerificationBadge({ verification }: { verification: ChainVerification }
   if (verification.ok) {
     return <span className="badge badge-verify-ok">✓ Tamper-evident · verified</span>;
   }
+  // index -1 means the chain was never even reconstructed — events.jsonl
+  // itself failed to read (see the CLI's matching formatVerifyResult) — so
+  // "at step -1" would be a meaningless number, not a real event position.
+  const at = verification.index >= 0 ? ` at step ${verification.index}` : "";
   return (
     <span className="badge badge-verify-broken">
-      ✗ Integrity broken at step {verification.index} — {verification.reason}
+      ✗ Integrity broken{at} — {verification.reason}
     </span>
   );
 }

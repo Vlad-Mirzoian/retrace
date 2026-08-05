@@ -2,6 +2,7 @@ import type { SessionRow } from "retrace-core/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
+  getAllEvents,
   getEvents,
   getObjectText,
   getSession,
@@ -74,15 +75,38 @@ describe("getSession", () => {
 
 describe("getEvents", () => {
   it("requests without query params by default", async () => {
-    vi.mocked(fetch).mockResolvedValue(jsonResponse([]));
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ events: [] }));
     await getEvents("sess-1");
     expect(fetch).toHaveBeenCalledWith("/api/sessions/sess-1/events");
   });
 
   it("includes offset and limit when given", async () => {
-    vi.mocked(fetch).mockResolvedValue(jsonResponse([]));
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ events: [] }));
     await getEvents("sess-1", { offset: 10, limit: 5 });
     expect(fetch).toHaveBeenCalledWith("/api/sessions/sess-1/events?offset=10&limit=5");
+  });
+});
+
+describe("getAllEvents", () => {
+  it("pages through events until a short page signals the end", async () => {
+    const page1 = Array.from({ length: 2 }, (_, i) => ({ seq: i }));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({ events: page1 }))
+      .mockResolvedValueOnce(jsonResponse({ events: [] }));
+
+    const result = await getAllEvents("sess-1", 2);
+    expect(result).toEqual({ events: page1 });
+  });
+
+  it("stops paginating and surfaces truncatedAt as soon as a page reports one", async () => {
+    const page1 = [{ seq: 0 }];
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({ events: page1, truncatedAt: { seq: 1, reason: "boom" } }),
+    );
+
+    const result = await getAllEvents("sess-1", 500);
+    expect(result).toEqual({ events: page1, truncatedAt: { seq: 1, reason: "boom" } });
+    expect(fetch).toHaveBeenCalledTimes(1); // no second page requested
   });
 });
 

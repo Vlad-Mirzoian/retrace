@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -75,7 +75,7 @@ describe("RetraceStore.appendEvent", () => {
     const third = store.appendEvent(prompt("s1", "three"));
     expect(third.seq).toBe(2);
 
-    const all = store.readEvents("s1", 0, 10);
+    const all = store.readEvents("s1", 0, 10).events;
     expect(all).toHaveLength(3);
     expect(verifyChain(all)).toEqual({ ok: true });
   });
@@ -154,20 +154,42 @@ describe("RetraceStore.readEvents", () => {
     const page2 = store.readEvents("s1", 2, 2);
     const page3 = store.readEvents("s1", 4, 2);
 
-    const all = [...page1, ...page2, ...page3];
+    expect(page1.truncatedAt).toBeUndefined();
+    expect(page2.truncatedAt).toBeUndefined();
+    expect(page3.truncatedAt).toBeUndefined();
+
+    const all = [...page1.events, ...page2.events, ...page3.events];
     expect(all.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4]);
     expect(
       all.map((e) => (e.kind === "user_prompt" ? e.payload.text : "")),
     ).toEqual(texts);
   });
 
-  it("returns an empty array past the end", () => {
+  it("returns an empty page past the end", () => {
     store.appendEvent(prompt("s1", "only one"));
-    expect(store.readEvents("s1", 5, 10)).toEqual([]);
+    expect(store.readEvents("s1", 5, 10)).toEqual({ events: [] });
   });
 
-  it("returns an empty array for a session with no events", () => {
-    expect(store.readEvents("ghost", 0, 10)).toEqual([]);
+  it("returns an empty page for a session with no events", () => {
+    expect(store.readEvents("ghost", 0, 10)).toEqual({ events: [] });
+  });
+
+  it("stops at the first unreadable event instead of throwing, reporting its seq and reason", async () => {
+    const texts = ["one", "two", "three"];
+    for (const text of texts) store.appendEvent(prompt("s1", text));
+
+    // Shortening the middle line by one byte desyncs every later event's
+    // recorded jsonl_offset from the file's actual bytes — the real-world
+    // shape of "just edit a character" tampering that also changes length.
+    const path = join(store.homeDir, "sessions", "s1", "events.jsonl");
+    const content = await readFile(path, "utf8");
+    expect(content).toContain('"text":"two"');
+    await writeFile(path, content.replace('"text":"two"', '"text":"tw"'), "utf8");
+
+    const page = store.readEvents("s1", 0, 10);
+    expect(page.events.map((e) => e.seq)).toEqual([0]);
+    expect(page.truncatedAt?.seq).toBe(1);
+    expect(page.truncatedAt?.reason).toBeTruthy();
   });
 });
 
@@ -231,7 +253,7 @@ describe("RetraceStore.deleteSession", () => {
     const result = store.deleteSession("s1");
     expect(result.importPaths).toEqual([]);
     expect(store.getSession("s1")).toBeUndefined();
-    expect(store.readEvents("s1")).toEqual([]);
+    expect(store.readEvents("s1")).toEqual({ events: [] });
     expect(existsSync(sessionDir)).toBe(false);
   });
 

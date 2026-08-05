@@ -46,7 +46,10 @@ export function linkSession(
     throw new Error(`${sessionId}: ${cwd} is not inside a git repository`);
   }
 
-  const events = collectAllEvents(store, sessionId);
+  // A truncated (partially corrupted) session just yields fewer candidate
+  // paths here — link is a best-effort heuristic match, not a place that
+  // needs to surface the truncation itself (verify/check/export already do).
+  const { events } = collectAllEvents(store, sessionId);
   const sessionPaths = events
     .filter((e): e is Extract<(typeof events)[number], { kind: "file_change" }> => e.kind === "file_change")
     .map((e) => e.payload.path);

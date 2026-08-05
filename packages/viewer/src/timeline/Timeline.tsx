@@ -137,9 +137,16 @@ export function Timeline({
     }
     if (currentSeq === undefined) return;
     const index = indexForSeq(itemsRef.current, currentSeq);
-    if (index >= 0) {
-      virtuosoRef.current?.scrollToIndex({ index, align: "center", behavior: "auto" });
+    if (index < 0) return;
+    if (index === 0) {
+      // The very first row: centering it (like any other row) would leave
+      // the page's own header/controls scrolled out of view above — landing
+      // on seq 0 (e.g. "First step") should read as "back to the top of the
+      // page", not just "this row is now mid-viewport".
+      window.scrollTo({ top: 0, behavior: "auto" });
+      return;
     }
+    virtuosoRef.current?.scrollToIndex({ index, align: "center", behavior: "auto" });
     // Deliberately just `[currentSeq]`: toggling a filter changes `items`
     // (and remounts Virtuoso below) without moving the cursor, and that must
     // not trigger a scroll — the whole point of a filter chip is to reshape
